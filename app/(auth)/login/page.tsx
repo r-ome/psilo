@@ -1,5 +1,8 @@
 "use client";
 
+import Link from "next/link";
+import { useState } from "react";
+import { Loader2Icon } from "lucide-react";
 import {
   Card,
   CardHeader,
@@ -12,25 +15,49 @@ import {
 import { Label } from "@/app/components/ui/label";
 import { Input } from "@/app/components/ui/input";
 import { Button } from "@/app/components/ui/button";
+import { toast } from "sonner";
 import { authService } from "@/app/lib/services/auth.services";
-
-interface LoginFormData {
-  email: string;
-  password: string;
-}
+import { loginSchema } from "@/app/lib/schemas/auth";
 
 const LoginPage = () => {
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [errors, setErrors] = useState<Record<string, string>>();
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    setIsLoading(true);
     const formData = new FormData(event.currentTarget);
-
-    const loginData: LoginFormData = {
-      email: formData.get("email") as string,
-      password: formData.get("password") as string,
+    const data = {
+      email: formData.get("email"),
+      password: formData.get("password"),
     };
 
-    const res = await authService.login(loginData.email, loginData.password);
-    console.log(res);
+    const inputValidate = loginSchema.safeParse(data);
+
+    if (!inputValidate.success) {
+      const fieldErrors: Record<string, string> = {};
+      inputValidate.error.issues.forEach((issue) => {
+        const path = issue.path.join(" ");
+        fieldErrors[path] = issue.message;
+      });
+      setErrors(fieldErrors);
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      const res = await authService.login(
+        inputValidate.data.email,
+        inputValidate.data.password,
+      );
+      if (res) toast.success("Successfully logged in!");
+      // res gets accessToken, idToken
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Login Failed";
+      toast.error(message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -43,8 +70,10 @@ const LoginPage = () => {
               Enter email below to login to your account
             </CardDescription>
             <CardAction>
-              <Button variant="link">
-                <a href="/sign-up">Sign Up</a>
+              <Button variant="link" tabIndex={-1}>
+                <Link href="/sign-up" tabIndex={-1}>
+                  Sign Up
+                </Link>
               </Button>
             </CardAction>
           </CardHeader>
@@ -58,23 +87,29 @@ const LoginPage = () => {
                     name="email"
                     type="email"
                     placeholder="email@gmail.com"
+                    disabled={isLoading}
+                    error={errors}
                     required
                   />
                 </div>
                 <div className="grid gap-2">
                   <div className="flex items-center">
                     <Label htmlFor="password">Password</Label>
-                    <a
-                      href="#"
+                    <Link
+                      href="forgot-password"
+                      tabIndex={-1}
                       className="ml-auto inline-block text-sm underline-offset-4 hover:underline"
                     >
                       Forgot your password?
-                    </a>
+                    </Link>
                   </div>
                   <Input
                     id="password"
                     name="password"
                     type="password"
+                    placeholder="********************"
+                    error={errors}
+                    disabled={isLoading}
                     required
                   />
                 </div>
@@ -86,11 +121,10 @@ const LoginPage = () => {
               form="login-form"
               type="submit"
               className="w-full cursor-pointer"
+              disabled={isLoading}
             >
+              {isLoading && <Loader2Icon className="animate-spin" />}
               Login
-            </Button>
-            <Button variant="outline" className="w-full cursor-pointer">
-              Login with Google
             </Button>
           </CardFooter>
         </Card>
