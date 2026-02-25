@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Loader2Icon } from "lucide-react";
 import {
@@ -16,10 +17,12 @@ import { Label } from "@/app/components/ui/label";
 import { Input } from "@/app/components/ui/input";
 import { Button } from "@/app/components/ui/button";
 import { toast } from "sonner";
-import { authService } from "@/app/lib/services/auth.services";
+import { useAuth } from "@/app/context/AuthContext";
 import { loginSchema } from "@/app/lib/schemas/auth";
 
 const LoginPage = () => {
+  const auth = useAuth();
+  const router = useRouter();
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [errors, setErrors] = useState<Record<string, string>>();
 
@@ -46,16 +49,17 @@ const LoginPage = () => {
     }
 
     try {
-      const res = await authService.login(
+      await auth.handleLogin(
         inputValidate.data.email,
         inputValidate.data.password,
       );
-      if (res) toast.success("Successfully logged in!");
-      // res gets accessToken, idToken
+      toast.success("Successfully logged in!");
+      router.push("/dashboard");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Login Failed";
       toast.error(message);
     } finally {
+      setErrors({});
       setIsLoading(false);
     }
   };

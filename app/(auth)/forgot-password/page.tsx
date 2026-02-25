@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { Loader2Icon } from "lucide-react";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   Card,
   CardHeader,
@@ -18,7 +18,10 @@ import {
   confirmForgotPasswordSchema,
 } from "@/app/lib/schemas/auth";
 import { authService } from "@/app/lib/services/auth.services";
-import { FORGOT_PASSWORD_STEPS, type ForgotPasswordStep } from "@/app/lib/constants/auth";
+import {
+  FORGOT_PASSWORD_STEPS,
+  type ForgotPasswordStep,
+} from "@/app/lib/constants/auth";
 import { toast } from "sonner";
 
 const ForgotPasswordPage = () => {
@@ -29,7 +32,8 @@ const ForgotPasswordPage = () => {
     FORGOT_PASSWORD_STEPS.FORGOT_PASSWORD,
   );
   const [email, setEmail] = useState<string>("");
-  const [confirmationCode, setConfirmationCode] = useState<string>();
+  const [confirmationCode, setConfirmationCode] = useState<string>("");
+  const confirmationCodeRef = useRef<HTMLInputElement>(null);
 
   const handleForgotPassword = async (
     event: React.FormEvent<HTMLFormElement>,
@@ -54,7 +58,8 @@ const ForgotPasswordPage = () => {
     }
 
     try {
-      await authService.forgotPassword(inputValidate.data.email);
+      const body = { email: inputValidate.data.email };
+      await authService.forgotPassword(body);
       setEmail(inputValidate.data.email);
       setStep(FORGOT_PASSWORD_STEPS.CONFIRM);
     } catch (error) {
@@ -77,7 +82,7 @@ const ForgotPasswordPage = () => {
 
       const data = {
         email,
-        code: confirmationCode,
+        confirmationCode,
         password: formData.get("password"),
       };
 
@@ -93,28 +98,27 @@ const ForgotPasswordPage = () => {
         return;
       }
 
-      const res = await authService.confirmForgotPassword(inputValidate.data);
-      if (res) {
-        toast.success("Successfully Updated Password!");
-        router.push("/login");
-      }
+      await authService.confirmForgotPassword(inputValidate.data);
+      toast.success("Successfully Updated Password!");
+      router.push("/login");
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Confirming Sign Up Failed!";
+
+      if (message.toUpperCase() === "INVALID VERIFICATION CODE.") {
+        setStep(FORGOT_PASSWORD_STEPS.CONFIRM);
+      }
       toast.error(message);
     } finally {
       setIsLoading(false);
+      setErrors({});
     }
   };
 
   const ForgotPasswordStep = () => {
     return (
       <CardContent>
-        <form
-          id="forgot-password-form"
-          onSubmit={handleForgotPassword}
-          autoComplete="off"
-        >
+        <form id="forgot-password-form" onSubmit={handleForgotPassword}>
           <div className="flex flex-col gap-6">
             <div className="grid gap-2">
               <Input
@@ -137,17 +141,28 @@ const ForgotPasswordPage = () => {
   const ConfirmationStep = () => {
     return (
       <CardContent>
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-2">
           <div className="grid gap-2">
             <Input
               id="confirmation_code"
               name="confirmation_code"
+              ref={confirmationCodeRef}
               type="text"
               placeholder="Confirmation Code"
               disabled={isLoading}
-              onChange={(e) => setConfirmationCode(e.target.value)}
               required
             />
+          </div>
+          <div className="w-full flex flex-row justify-end">
+            <Button
+              type="button"
+              variant="link"
+              className="text-xs underline hover:cursor-pointer w-fit"
+              size="xs"
+              onClick={async () => await authService.forgotPassword({ email })}
+            >
+              Resend Confirmation Code
+            </Button>
           </div>
         </div>
       </CardContent>
@@ -192,15 +207,21 @@ const ForgotPasswordPage = () => {
                 : "Check your email for verification"}
             </CardTitle>
             <CardDescription>
-              {step === FORGOT_PASSWORD_STEPS.FORGOT_PASSWORD && "Please enter your email."}
+              {step === FORGOT_PASSWORD_STEPS.FORGOT_PASSWORD &&
+                "Please enter your email."}
               {step === FORGOT_PASSWORD_STEPS.CONFIRM &&
                 "We've sent you a verification code in your email."}
-              {step === FORGOT_PASSWORD_STEPS.NEW_PASSWORD && "Please enter your new password."}
+              {step === FORGOT_PASSWORD_STEPS.NEW_PASSWORD &&
+                "Please enter your new password."}
             </CardDescription>
           </CardHeader>
-          {step === FORGOT_PASSWORD_STEPS.FORGOT_PASSWORD && <ForgotPasswordStep />}
+          {step === FORGOT_PASSWORD_STEPS.FORGOT_PASSWORD && (
+            <ForgotPasswordStep />
+          )}
           {step === FORGOT_PASSWORD_STEPS.CONFIRM && <ConfirmationStep />}
-          {step === FORGOT_PASSWORD_STEPS.NEW_PASSWORD && <SetNewPasswordStep />}
+          {step === FORGOT_PASSWORD_STEPS.NEW_PASSWORD && (
+            <SetNewPasswordStep />
+          )}
           <CardFooter className="flex-col gap-2">
             {step === FORGOT_PASSWORD_STEPS.FORGOT_PASSWORD && (
               <Button
@@ -216,8 +237,13 @@ const ForgotPasswordPage = () => {
 
             {step === FORGOT_PASSWORD_STEPS.CONFIRM && (
               <Button
+                type="submit"
                 className="w-full cursor-pointer"
-                onClick={() => setStep(FORGOT_PASSWORD_STEPS.NEW_PASSWORD)}
+                onClick={() => {
+                  const value = confirmationCodeRef.current?.value ?? "";
+                  setConfirmationCode(value);
+                  setStep(FORGOT_PASSWORD_STEPS.NEW_PASSWORD);
+                }}
                 disabled={isLoading}
               >
                 {isLoading && <Loader2Icon className="animate-spin" />}

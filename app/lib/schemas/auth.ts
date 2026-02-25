@@ -4,6 +4,7 @@ export const loginSchema = z.object({
   email: z.string().email("Must be a valid email address"),
   password: z.string().min(8, "Password must be at least 8 characters"),
 });
+export type LoginInput = z.infer<typeof loginSchema>;
 
 export const signUpSchema = z
   .object({
@@ -35,13 +36,19 @@ export const signUpSchema = z
   });
 export type SignUpInput = z.infer<typeof signUpSchema>;
 
+export const confirmSignUpSchema = z.object({
+  email: z.string().email("Must be a valid email address"),
+  confirmationCode: z.string(),
+});
+export type ConfirmSignUpInput = z.infer<typeof confirmSignUpSchema>;
+
 export const forgotPasswordSchema = z.object({
   email: z.string().email("Must be a valid email address"),
 });
 
 export const confirmForgotPasswordSchema = z.object({
   email: z.string().email("Must be a valid email address"),
-  code: z.string(),
+  confirmationCode: z.string(),
   password: z
     .string()
     .min(8, "Password must be at least 8 characters")

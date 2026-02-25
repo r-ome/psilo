@@ -9,7 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "amazon-cognito-identity-js": "^6.3.16",
+    "@aws-sdk/client-cognito-identity-provider": "^3.997.0",
     "aws-jwt-verify": "^5.1.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

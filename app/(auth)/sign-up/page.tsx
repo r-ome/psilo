@@ -52,7 +52,7 @@ const SignUpPage = () => {
     }
 
     try {
-      await authService.signup(inputValidate.data);
+      authService.signup(inputValidate.data);
       setEmail(inputValidate.data.email);
       setStep(SIGNUP_STEPS.CONFIRM);
     } catch (error) {
@@ -72,25 +72,29 @@ const SignUpPage = () => {
     if (!email) return;
     try {
       const formData = new FormData(event.currentTarget);
-      const code = formData.get("confirmation_code");
+      const confirmationCode = formData.get("confirmation_code");
 
-      if (!code) {
+      if (!confirmationCode) {
         setErrors({ confirmation_code: "This field is required!" });
         setIsLoading(false);
         return;
       }
 
-      const res = await authService.confirmSignUp(email, code as string);
-      if (res) {
-        toast.success("Successfully Registered Account!");
-        router.push("/login");
-      }
+      const body = {
+        email,
+        confirmationCode: confirmationCode as string,
+      };
+
+      await authService.confirmSignUp(body);
+      toast.success("Successfully Registered Account!");
+      router.push("/login");
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Confirming Sign Up Failed!";
       toast.error(message);
     } finally {
       setIsLoading(false);
+      setErrors({});
     }
   };
 
@@ -102,7 +106,7 @@ const SignUpPage = () => {
           onSubmit={handleConfirmSignUp}
           autoComplete="off"
         >
-          <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-2">
             <div className="grid gap-2">
               <Input
                 id="confirmation_code"
@@ -112,6 +116,19 @@ const SignUpPage = () => {
                 disabled={isLoading}
                 required
               />
+            </div>
+            <div className="w-full flex flex-row justify-end">
+              <Button
+                type="button"
+                variant="link"
+                className="text-xs underline hover:cursor-pointer w-fit"
+                size="xs"
+                onClick={async () =>
+                  await authService.resendSignUpConfirmationCode({ email })
+                }
+              >
+                Resend Confirmation Code
+              </Button>
             </div>
           </div>
         </form>
