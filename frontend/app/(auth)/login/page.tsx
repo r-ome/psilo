@@ -12,13 +12,13 @@ import {
   CardAction,
   CardTitle,
   CardDescription,
-} from "@/frontend/app/components/ui/card";
-import { Label } from "@/frontend/app/components/ui/label";
-import { Input } from "@/frontend/app/components/ui/input";
-import { Button } from "@/frontend/app/components/ui/button";
+} from "@/app/components/ui/card";
+import { Label } from "@/app/components/ui/label";
+import { Input } from "@/app/components/ui/input";
+import { Button } from "@/app/components/ui/button";
 import { toast } from "sonner";
-import { useAuth } from "@/frontend/app/context/AuthContext";
-import { loginSchema } from "@/frontend/app/lib/schemas/auth";
+import { useAuth } from "@/app/context/AuthContext";
+import { loginSchema } from "@/app/lib/schemas/auth";
 
 const LoginPage = () => {
   const auth = useAuth();

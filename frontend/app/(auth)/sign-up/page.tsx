@@ -10,16 +10,13 @@ import {
   CardFooter,
   CardTitle,
   CardDescription,
-} from "@/frontend/app/components/ui/card";
-import { Label } from "@/frontend/app/components/ui/label";
-import { Input } from "@/frontend/app/components/ui/input";
-import { Button } from "@/frontend/app/components/ui/button";
-import { signUpSchema } from "@/frontend/app/lib/schemas/auth";
-import { authService } from "@/frontend/app/lib/services/auth.services";
-import {
-  SIGNUP_STEPS,
-  type SignUpStep,
-} from "@/frontend/app/lib/constants/auth";
+} from "@/app/components/ui/card";
+import { Label } from "@/app/components/ui/label";
+import { Input } from "@/app/components/ui/input";
+import { Button } from "@/app/components/ui/button";
+import { signUpSchema } from "@/app/lib/schemas/auth";
+import { authService } from "@/app/lib/services/auth.services";
+import { SIGNUP_STEPS, type SignUpStep } from "@/app/lib/constants/auth";
 import { toast } from "sonner";
 
 const SignUpPage = () => {

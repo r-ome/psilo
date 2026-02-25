@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { cognitoService } from "@/frontend/app/lib/services/cognito.service";
-import { handleCognitoError } from "@/frontend/app/lib/cognito";
-import { env } from "@/frontend/app/lib/env.server";
-import { loginSchema } from "@/frontend/app/lib/schemas/auth";
+import { cognitoService } from "@/app/lib/services/cognito.service";
+import { handleCognitoError } from "@/app/lib/cognito";
+import { env } from "@/app/lib/env.server";
+import { loginSchema } from "@/app/lib/schemas/auth";
 
 export async function POST(req: NextRequest) {
   let body: unknown;
@@ -58,6 +58,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (error: unknown) {
+    console.log({ error });
     const { message, status } = handleCognitoError(error);
     return NextResponse.json({ message }, { status });
   }

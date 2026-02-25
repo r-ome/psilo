@@ -1,7 +1,7 @@
 import { NextResponse, NextRequest } from "next/server";
-import { cognitoService } from "@/frontend/app/lib/services/cognito.service";
-import { handleCognitoError } from "@/frontend/app/lib/cognito";
-import { confirmSignUpSchema } from "@/frontend/app/lib/schemas/auth";
+import { cognitoService } from "@/app/lib/services/cognito.service";
+import { handleCognitoError } from "@/app/lib/cognito";
+import { confirmSignUpSchema } from "@/app/lib/schemas/auth";
 
 export async function POST(req: NextRequest) {
   let body: unknown;
@@ -26,6 +26,7 @@ export async function POST(req: NextRequest) {
     await cognitoService.confirmSignUp(data);
     return NextResponse.json({ ok: true });
   } catch (error) {
+    console.log({ error });
     const { message, status } = handleCognitoError(error);
     return NextResponse.json({ message }, { status });
   }

@@ -1,7 +1,7 @@
 import { NextResponse, NextRequest } from "next/server";
-import { handleCognitoError } from "@/frontend/app/lib/cognito";
-import { confirmForgotPasswordSchema } from "@/frontend/app/lib/schemas/auth";
-import { cognitoService } from "@/frontend/app/lib/services/cognito.service";
+import { handleCognitoError } from "@/app/lib/cognito";
+import { confirmForgotPasswordSchema } from "@/app/lib/schemas/auth";
+import { cognitoService } from "@/app/lib/services/cognito.service";
 
 export async function POST(req: NextRequest) {
   let body: unknown;

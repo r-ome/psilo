@@ -10,18 +10,18 @@ import {
   CardFooter,
   CardTitle,
   CardDescription,
-} from "@/frontend/app/components/ui/card";
-import { Input } from "@/frontend/app/components/ui/input";
-import { Button } from "@/frontend/app/components/ui/button";
+} from "@/app/components/ui/card";
+import { Input } from "@/app/components/ui/input";
+import { Button } from "@/app/components/ui/button";
 import {
   forgotPasswordSchema,
   confirmForgotPasswordSchema,
-} from "@/frontend/app/lib/schemas/auth";
-import { authService } from "@/frontend/app/lib/services/auth.services";
+} from "@/app/lib/schemas/auth";
+import { authService } from "@/app/lib/services/auth.services";
 import {
   FORGOT_PASSWORD_STEPS,
   type ForgotPasswordStep,
-} from "@/frontend/app/lib/constants/auth";
+} from "@/app/lib/constants/auth";
 import { toast } from "sonner";
 
 const ForgotPasswordPage = () => {

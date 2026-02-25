@@ -1,5 +1,5 @@
 import { SignUpInput, ConfirmForgotPasswordInput } from "../schemas/auth";
-import { api } from "@/frontend/app/lib/api";
+import { api } from "@/app/lib/api";
 
 const API_URL = `/api/auth`;
 

@@ -1,7 +1,7 @@
 import {
   cognitoClient,
   COGNITO_APP_CLIENT_ID,
-} from "@/frontend/app/lib/cognito";
+} from "@/app/lib/cognito";
 import {
   InitiateAuthCommand,
   GlobalSignOutCommand,
@@ -16,7 +16,7 @@ import {
   ConfirmSignUpInput,
   SignUpInput,
   LoginInput,
-} from "@/frontend/app/lib/schemas/auth";
+} from "@/app/lib/schemas/auth";
 
 export const cognitoService = {
   login: (body: LoginInput) =>

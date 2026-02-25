@@ -8,9 +8,9 @@ import {
   NavigationMenuLink,
   NavigationMenuList,
   NavigationMenuTrigger,
-} from "@/frontend/app/components/ui/navigation-menu";
-import { Button } from "@/frontend/app/components/ui/button";
-import { useAuth } from "@/frontend/app/context/AuthContext";
+} from "@/app/components/ui/navigation-menu";
+import { Button } from "@/app/components/ui/button";
+import { useAuth } from "@/app/context/AuthContext";
 
 function ListItem({
   title,
