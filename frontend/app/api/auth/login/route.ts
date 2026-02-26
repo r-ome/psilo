@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
       response.AuthenticationResult ?? {};
 
     if (!AccessToken || !IdToken || !RefreshToken) {
-      return NextResponse.json({ error: "Login failed" }, { status: 401 });
+      return NextResponse.json({ message: "Login failed." }, { status: 401 });
     }
 
     const cookieStore = await cookies();
@@ -58,7 +58,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (error: unknown) {
-    console.log({ error });
     const { message, status } = handleCognitoError(error);
     return NextResponse.json({ message }, { status });
   }

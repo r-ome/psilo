@@ -8,7 +8,6 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const error = await res.json();
-    console.log({ error });
     throw new Error(error.message ?? "Something went wrong");
   }
 

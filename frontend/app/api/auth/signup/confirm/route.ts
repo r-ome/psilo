@@ -26,7 +26,6 @@ export async function POST(req: NextRequest) {
     await cognitoService.confirmSignUp(data);
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.log({ error });
     const { message, status } = handleCognitoError(error);
     return NextResponse.json({ message }, { status });
   }
