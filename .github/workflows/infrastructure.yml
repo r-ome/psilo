@@ -29,6 +29,6 @@ jobs:
 
       - name: Install & Deploy
         run: |
-          cd infrastructure
-          npm ci
+          cd services && npm ci
+          cd ../infrastructure && npm ci
           npx cdk deploy psilo-dev-apse1-stack --require-approval never
