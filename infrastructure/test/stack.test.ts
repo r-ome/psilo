@@ -24,7 +24,6 @@ describe('PsiloStack', () => {
     });
 
     it('application Lambdas have BUCKET_NAME environment variable', () => {
-      // Both app Lambdas have BUCKET_NAME; check at least 2 exist with this env var
       template.resourcePropertiesCountIs(
         'AWS::Lambda::Function',
         {
@@ -34,8 +33,20 @@ describe('PsiloStack', () => {
             }),
           }),
         },
-        2,
+        4, // UserProvisioning, GeneratePresignedUrl, ProcessPhotoMetadata, ManagePhotos
       );
+    });
+
+    it('ProcessPhotoMetadata Lambda exists', () => {
+      template.hasResourceProperties('AWS::Lambda::Function', {
+        Environment: Match.objectLike({
+          Variables: Match.objectLike({
+            DB_CLUSTER_ARN: Match.anyValue(),
+            DB_SECRET_ARN: Match.anyValue(),
+            DB_NAME: 'psilo',
+          }),
+        }),
+      });
     });
   });
 
@@ -43,6 +54,25 @@ describe('PsiloStack', () => {
     it('has versioning enabled', () => {
       template.hasResourceProperties('AWS::S3::Bucket', {
         VersioningConfiguration: { Status: 'Enabled' },
+      });
+    });
+
+    it('has S3 event notification for object created', () => {
+      template.hasResourceProperties('Custom::S3BucketNotifications', {
+        NotificationConfiguration: Match.objectLike({
+          LambdaFunctionConfigurations: Match.arrayWith([
+            Match.objectLike({
+              Events: ['s3:ObjectCreated:*'],
+              Filter: Match.objectLike({
+                Key: Match.objectLike({
+                  FilterRules: Match.arrayWith([
+                    Match.objectLike({ Name: 'prefix', Value: 'users/' }),
+                  ]),
+                }),
+              }),
+            }),
+          ]),
+        }),
       });
     });
   });
@@ -65,6 +95,27 @@ describe('PsiloStack', () => {
     });
   });
 
+  describe('RDS Aurora Serverless', () => {
+    it('creates an RDS database cluster', () => {
+      template.resourceCountIs('AWS::RDS::DBCluster', 1);
+    });
+
+    it('database cluster has Data API enabled', () => {
+      template.hasResourceProperties('AWS::RDS::DBCluster', {
+        EnableHttpEndpoint: true,
+      });
+    });
+
+    it('creates a Secrets Manager secret for DB credentials', () => {
+      template.hasResourceProperties('AWS::SecretsManager::Secret', {
+        GenerateSecretString: Match.objectLike({
+          SecretStringTemplate: JSON.stringify({ username: 'postgres' }),
+          GenerateStringKey: 'password',
+        }),
+      });
+    });
+  });
+
   describe('API Gateway', () => {
     it('has POST /files/presign route', () => {
       template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
@@ -82,6 +133,55 @@ describe('PsiloStack', () => {
     it('has a JWT authorizer', () => {
       template.hasResourceProperties('AWS::ApiGatewayV2::Authorizer', {
         AuthorizerType: 'JWT',
+      });
+    });
+
+    it('has GET /photos route', () => {
+      template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+        RouteKey: 'GET /photos',
+        AuthorizationType: 'JWT',
+      });
+    });
+
+    it('has DELETE /photos/{key+} route', () => {
+      template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+        RouteKey: 'DELETE /photos/{key+}',
+        AuthorizationType: 'JWT',
+      });
+    });
+
+    it('has POST /albums route', () => {
+      template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+        RouteKey: 'POST /albums',
+        AuthorizationType: 'JWT',
+      });
+    });
+
+    it('has GET /albums route', () => {
+      template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+        RouteKey: 'GET /albums',
+        AuthorizationType: 'JWT',
+      });
+    });
+
+    it('has GET /albums/{albumId} route', () => {
+      template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+        RouteKey: 'GET /albums/{albumId}',
+        AuthorizationType: 'JWT',
+      });
+    });
+
+    it('has POST /albums/{albumId}/photos route', () => {
+      template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+        RouteKey: 'POST /albums/{albumId}/photos',
+        AuthorizationType: 'JWT',
+      });
+    });
+
+    it('has DELETE /albums/{albumId}/photos/{photoId} route', () => {
+      template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+        RouteKey: 'DELETE /albums/{albumId}/photos/{photoId}',
+        AuthorizationType: 'JWT',
       });
     });
   });

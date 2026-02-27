@@ -19,6 +19,7 @@
     "aws-cdk": "2.1107.0",
     "esbuild": "^0.27.3",
     "jest": "^30",
+    "sharp": "^0.33.0",
     "ts-jest": "^29",
     "ts-node": "^10.9.2",
     "typescript": "~5.9.3"
