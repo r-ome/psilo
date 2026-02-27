@@ -11,7 +11,10 @@ const BUCKET_NAME = process.env.BUCKET_NAME!;
 export const handler = async (
   event: APIGatewayProxyEventV2WithJWTAuthorizer,
 ): Promise<APIGatewayProxyResultV2> => {
-  const userId = event.requestContext.authorizer.jwt.claims.sub as string;
+  const claims = event.requestContext.authorizer.jwt.claims;
+  const userId = claims.sub as string;
+  const givenName = (claims.given_name as string) ?? '';
+  const familyName = (claims.family_name as string) ?? '';
   const body = JSON.parse(event.body ?? "{}");
   const { filename, contentType } = body;
 
@@ -24,7 +27,10 @@ export const handler = async (
     };
   }
 
-  const key = `users/${userId}/${filename}`;
+  const userPrefix = givenName && familyName
+    ? `${givenName}-${familyName}-${userId}`
+    : userId;
+  const key = `users/${userPrefix}/${filename}`;
 
   const command = new PutObjectCommand({
     Bucket: BUCKET_NAME,

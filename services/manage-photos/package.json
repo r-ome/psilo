@@ -1,17 +1,17 @@
 {
-  "name": "user-provisioning",
+  "name": "manage-photos",
   "version": "1.0.0",
   "scripts": {
     "test": "jest"
   },
   "dependencies": {
     "@aws-sdk/client-rds-data": "^3.0.0",
-    "@aws-sdk/client-s3": "^3.0.0"
+    "@aws-sdk/client-s3": "^3.0.0",
+    "@aws-sdk/s3-request-presigner": "^3.0.0"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.0",
     "@types/jest": "^30.0.0",
-    "@types/mocha": "^10.0.10",
     "@types/node": "^22.0.0",
     "aws-sdk-client-mock": "^4",
     "jest": "^30",

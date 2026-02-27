@@ -1,0 +1,16 @@
+{
+  "name": "psilo-services",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@aws-sdk/client-rds-data": "^3.0.0",
+    "@aws-sdk/s3-request-presigner": "^3.999.0",
+    "dotenv": "^17.3.1",
+    "drizzle-orm": "^0.44.0"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.30.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}

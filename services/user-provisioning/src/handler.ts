@@ -1,5 +1,6 @@
 import { PostConfirmationTriggerEvent } from "aws-lambda";
 import { createUserPrefix } from "./s3";
+import { insertUser } from "./db";
 
 export const handler = async (event: PostConfirmationTriggerEvent) => {
   const userId = event.request.userAttributes.sub;
@@ -10,6 +11,7 @@ export const handler = async (event: PostConfirmationTriggerEvent) => {
   console.log(`Creating S3 prefix for user: ${email}`);
 
   await createUserPrefix(userId, givenName, familyName);
+  await insertUser(userId, email, givenName, familyName);
 
   return event;
 };
