@@ -4,12 +4,16 @@ import { cognitoService } from "@/app/lib/services/cognito.service";
 import { handleCognitoError } from "@/app/lib/cognito";
 import { env } from "@/app/lib/env.server";
 import { loginSchema } from "@/app/lib/schemas/auth";
+import logger from "@/app/lib/logger";
 
 export async function POST(req: NextRequest) {
+  logger.info({ method: "POST", route: "/api/auth/login" }, "request");
+
   let body: unknown;
   try {
     body = await req.json();
   } catch {
+    logger.info({ status: 400 }, "response");
     return NextResponse.json(
       { message: "Invalid request body." },
       { status: 400 },
@@ -18,6 +22,7 @@ export async function POST(req: NextRequest) {
 
   const { data, success, error } = loginSchema.safeParse(body);
   if (!success) {
+    logger.info({ status: 422 }, "response");
     return NextResponse.json(
       { message: error.issues[0].message },
       { status: 422 },
@@ -30,6 +35,7 @@ export async function POST(req: NextRequest) {
       response.AuthenticationResult ?? {};
 
     if (!AccessToken || !IdToken || !RefreshToken) {
+      logger.info({ status: 401 }, "response");
       return NextResponse.json({ message: "Login failed." }, { status: 401 });
     }
 
@@ -56,9 +62,11 @@ export async function POST(req: NextRequest) {
       maxAge: 60 * 60 * 24 * 30, // 30 days
     });
 
+    logger.info({ status: 200 }, "response");
     return NextResponse.json({ ok: true });
-  } catch (error: unknown) {
-    const { message, status } = handleCognitoError(error);
+  } catch (err: unknown) {
+    const { message, status } = handleCognitoError(err);
+    logger.error({ err, status }, "cognito error");
     return NextResponse.json({ message }, { status });
   }
 }
