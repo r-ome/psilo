@@ -12,6 +12,7 @@ frontend/.next/
 frontend/out/
 frontend/build/
 frontend/.vercel
+frontend/next-env.d.ts
 
 # ===========================
 # CDK
