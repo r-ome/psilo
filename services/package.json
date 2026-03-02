@@ -6,7 +6,8 @@
     "@aws-sdk/client-rds-data": "3.873.0",
     "@aws-sdk/s3-request-presigner": "^3.999.0",
     "dotenv": "^17.3.1",
-    "drizzle-orm": "^0.44.0"
+    "drizzle-orm": "^0.44.0",
+    "exif-reader": "^1.0.2"
   },
   "devDependencies": {
     "drizzle-kit": "^0.31.9",
