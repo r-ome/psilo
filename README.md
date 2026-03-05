@@ -18,7 +18,7 @@ and full-stack TypeScript. Integrated with Claude Code for AI-assisted developme
 
 ## Prerequisites
 
-- Node.js v23+
+- Node.js v22+
 - AWS CLI configured with appropriate credentials
 - AWS CDK v2
 - An AWS account
@@ -30,15 +30,17 @@ and full-stack TypeScript. Integrated with Claude Code for AI-assisted developme
     - Cognito - authentication
     - API Gateway + Lambda - request handling and business logic
     - S3 - object storage
-    - SQS - handling upload jobs for big file uploads
+    - SQS - for metadata processing
     - Aurora Serverless v2 - stores users and photo metadata
 
 # Project Structure
 
 ```
-├── frontend/ # Next.js app
-├── infrastructure/ # AWS CDK stacks
-└── services/ # Lambda functions
+├── frontend/         # Next.js app
+├── infrastructure/   # AWS CDK stacks
+└── services/         # Lambda functions
+      ├── shared/     # RDS Schema
+      └── migrations/ # Migrations
 ```
 
 ### Frontend
@@ -58,7 +60,7 @@ Lambda functions written in Typescript, each handling a specific domain (photos,
 | Layer          | Technology                      |
 | -------------- | ------------------------------- |
 | Frontend       | Next.js, TypeScript             |
-| Backend        | AWS Lambda, Node.js v23         |
+| Backend        | AWS Lambda, Node.js v22+        |
 | Database       | Aurora Serverless (Drizzle ORM) |
 | Infrastructure | AWS CDK                         |
 | Storage        | S3 Glacier Flexible Retrieval   |
@@ -95,11 +97,19 @@ SQS --> Lambda
 - [x] Authentication (Cognito)
 - [x] File Upload
 - [x] File Retrieval
-- [ ] Album Management
+- [x] Album Management
 - [ ] Storage usage dashboard
 - [ ] Photo sorting and filtering
 - [ ] Image optimization
 
-# Key Decisions
+# Key Descisions
 
-- **S3 Glacier Flexible Retrieval** - cost optimization for cold storage.
+- **NextJS** - frontend tech stack. [ADR-001](documentation/ADRs/001-use-nextjs.md)
+- **Monorepo** - repository architecture. [ADR-002](documentation/ADRs/002-implement-monorepo.md)
+- **AWS** - cloud service provider. [ADR-003](documentation/ADRs/003-leverage-aws-background.md)
+- **AWS S3 Glacier Flexible** - cost optimization for cold storage. [ADR-004](documentation/ADRs/004-using-S3-glacier-flexible.md)
+- **AWS Aurora Serverless v2** - database [ADR-005](documentation/ADRs/005-using-aurora-serverless.md)
+- **Drizzle** - database ORM. [ADR-006](documentation/ADRs/006-using-drizzle.md)
+- **Backend for Frontends (BFF) Pattern** - design pattern for the App. [ADR-007](documentation/ADRs/007-using-bff-approach.md)
+- **SQS for async photo metadata processing** - decoupled background processing with DLQ. [ADR-008](documentation/ADRs/008-sqs-async-photo-processing.md)
+- **Aurora Data API (no VPC)** - Lambda-to-database connectivity without NAT gateways. [ADR-009](documentation/ADRs/009-aurora-data-api-no-vpc.md)
