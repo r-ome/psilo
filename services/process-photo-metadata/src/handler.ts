@@ -1,5 +1,5 @@
 import { SQSEvent, SQSBatchResponse } from "aws-lambda";
-import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, GetObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { eq } from "drizzle-orm";
 import sharp from "sharp";
 import exifReader from "exif-reader";
@@ -99,15 +99,11 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
           set: { status: "processing" },
         });
 
-      // Phase 2: download + extract metadata
-      const response = await s3.send(
-        new GetObjectCommand({ Bucket: bucket, Key: key }),
+      // Phase 2: check content type first to avoid downloading large video files
+      const head = await s3.send(
+        new HeadObjectCommand({ Bucket: bucket, Key: key }),
       );
-      const chunks: Uint8Array[] = [];
-      for await (const chunk of response.Body as AsyncIterable<Uint8Array>) {
-        chunks.push(chunk);
-      }
-      const contentType = response.ContentType ?? null;
+      const contentType = head.ContentType ?? null;
 
       let width: number | null = null;
       let height: number | null = null;
@@ -115,6 +111,13 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
       let takenAt: Date | null = null;
 
       if (!contentType?.startsWith("video/")) {
+        const response = await s3.send(
+          new GetObjectCommand({ Bucket: bucket, Key: key }),
+        );
+        const chunks: Uint8Array[] = [];
+        for await (const chunk of response.Body as AsyncIterable<Uint8Array>) {
+          chunks.push(chunk);
+        }
         const metadata = await sharp(Buffer.concat(chunks)).metadata();
         width = metadata.width ?? null;
         height = metadata.height ?? null;
