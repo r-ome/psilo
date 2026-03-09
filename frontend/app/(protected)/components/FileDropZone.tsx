@@ -29,8 +29,14 @@ const FileDropZone: React.FC<FileDropZoneProps> = ({ onUploadComplete }) => {
     if (!files) return;
 
     const newFiles = Array.from(files).filter((file) => {
-      if (file.name.toLowerCase().endsWith('.avi') || file.type === 'video/x-msvideo' || file.type === 'video/avi') {
-        toast.error(`${file.name}: AVI files are not supported. Please convert to MP4 or MOV.`);
+      if (
+        file.name.toLowerCase().endsWith(".avi") ||
+        file.type === "video/x-msvideo" ||
+        file.type === "video/avi"
+      ) {
+        toast.error(
+          `${file.name}: AVI files are not supported. Please convert to MP4 or MOV.`,
+        );
         return false;
       }
       return true;
@@ -41,7 +47,10 @@ const FileDropZone: React.FC<FileDropZoneProps> = ({ onUploadComplete }) => {
     // Generate all presigned URLs upfront in parallel
     const presignedUrls = await Promise.all(
       newFiles.map((file) =>
-        s3Service.getPresignedURL({ filename: file.name, contentType: file.type }),
+        s3Service.getPresignedURL({
+          filename: file.name,
+          contentType: file.type,
+        }),
       ),
     );
 
@@ -100,7 +109,6 @@ const FileDropZone: React.FC<FileDropZoneProps> = ({ onUploadComplete }) => {
             >
               click to browse
             </label>{" "}
-            (4MB max)
           </p>
           <input
             type="file"
