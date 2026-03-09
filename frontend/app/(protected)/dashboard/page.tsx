@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import {
   Dialog,
   DialogContent,
@@ -23,6 +23,21 @@ export default function Page() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeletePending, setBulkDeletePending] = useState(false);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+
+  const totalSizeMB = useMemo(() => {
+    const bytes = photos.reduce((sum, p) => sum + (p.size ?? 0), 0);
+    return (bytes / (1024 * 1024)).toFixed(2);
+  }, [photos]);
+
+  const photosCount = useMemo(() => {
+    const photo = photos.filter(
+      (item) => item.contentType && item.contentType.includes("image"),
+    ).length;
+    const video = photos.filter(
+      (item) => item.contentType && item.contentType.includes("video"),
+    ).length;
+    return { photo, video };
+  }, [photos]);
 
   const loadPhotos = useCallback(() => {
     photoService
@@ -109,24 +124,32 @@ export default function Page() {
 
   return (
     <div className="space-y-8">
-      <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
-        <DialogTrigger asChild>
-          <Button>
-            <Upload className="h-4 w-4 mr-2" />
-            Upload Files
-          </Button>
-        </DialogTrigger>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Upload Your Files</DialogTitle>
-          </DialogHeader>
-          <FileDropZone onUploadComplete={handleUploadComplete} />
-        </DialogContent>
-      </Dialog>
+      <div className="flex justify-between items-center">
+        <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
+          <DialogTrigger asChild>
+            <Button>
+              <Upload className="h-4 w-4 mr-2" />
+              Upload Files
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Upload Your Files</DialogTitle>
+            </DialogHeader>
+            <FileDropZone onUploadComplete={handleUploadComplete} />
+          </DialogContent>
+        </Dialog>
+
+        <div className="text-sm text-muted-foreground font-semibold">
+          {photosCount.video} video{photosCount.video !== 1 ? "s" : ""} ·{" "}
+          {photosCount.photo} photo{photosCount.photo !== 1 ? "s" : ""} ·{" "}
+          {totalSizeMB} MB
+        </div>
+      </div>
 
       {photos.length > 0 && (
         <div>
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-end mb-4">
             {selectedIds.size > 0 && (
               <div className="flex items-center gap-2">
                 <span className="text-sm text-muted-foreground">
