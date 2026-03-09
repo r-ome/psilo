@@ -18,9 +18,7 @@ export async function getValidToken(
   const cookieStore = await cookies();
   const accessToken = cookieStore.get("access_token")?.value;
 
-  if (!accessToken) return null;
-
-  if (!isTokenExpired(accessToken)) {
+  if (accessToken && !isTokenExpired(accessToken)) {
     return cookieStore.get(cookieName)?.value ?? null;
   }
 
