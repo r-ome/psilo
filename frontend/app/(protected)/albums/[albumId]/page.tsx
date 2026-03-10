@@ -286,8 +286,8 @@ export default function AlbumDetailPage({
           }
         }}
       >
-        <DialogContent className="w-[640px] h-[80vh] flex flex-col">
-          <DialogHeader className="flex-shrink-0">
+        <DialogContent className="w-160 h-[80vh] flex flex-col">
+          <DialogHeader className="shrink-0">
             <DialogTitle>Add Photos to {album.name}</DialogTitle>
           </DialogHeader>
           <div
@@ -310,7 +310,11 @@ export default function AlbumDetailPage({
                     >
                       <div className="relative aspect-square bg-muted">
                         <Image
-                          src={photo.contentType?.startsWith("video/") ? (photo.signedUrl || "") : (photo.thumbnailUrl || "")}
+                          src={
+                            photo.contentType?.startsWith("video/")
+                              ? photo.signedUrl || ""
+                              : photo.thumbnailUrl || ""
+                          }
                           alt={photo.filename}
                           fill
                           className="object-cover"
