@@ -11,8 +11,16 @@ const mockInsert = jest.fn(() => ({ values: mockInsertValues }));
 const mockDeleteWhere = jest.fn().mockResolvedValue([]);
 const mockDelete = jest.fn(() => ({ where: mockDeleteWhere }));
 
+const mockOrderBy = jest.fn().mockResolvedValue([]);
 const mockSelectWhere = jest.fn().mockResolvedValue([]);
-const mockInnerJoin = jest.fn(() => ({ where: mockSelectWhere }));
+// mockWhereForCover needs to return { orderBy } but also be thenable for other routes
+const mockWhereForCover = jest.fn(function() {
+  // Return both orderBy and make it awaitable as a Promise
+  const result = Promise.resolve([]);
+  (result as any).orderBy = mockOrderBy;
+  return result;
+});
+const mockInnerJoin = jest.fn(() => ({ where: mockWhereForCover }));
 const mockFrom = jest.fn(() => ({ where: mockSelectWhere, innerJoin: mockInnerJoin }));
 const mockSelect = jest.fn(() => ({ from: mockFrom }));
 
@@ -35,6 +43,9 @@ jest.mock('../../shared/schema', () => ({
 jest.mock('drizzle-orm', () => ({
   eq: jest.fn((col, val) => ({ col, val })),
   and: jest.fn((...args) => ({ and: args })),
+  inArray: jest.fn((col, vals) => ({ inArray: { col, vals } })),
+  desc: jest.fn((col) => ({ desc: col })),
+  isNotNull: jest.fn((col) => ({ isNotNull: col })),
 }));
 
 jest.mock('@aws-sdk/s3-request-presigner', () => ({
@@ -77,6 +88,12 @@ beforeEach(() => {
   mockFrom.mockClear();
   mockSelectWhere.mockClear().mockResolvedValue([]);
   mockInnerJoin.mockClear();
+  mockOrderBy.mockClear().mockResolvedValue([]);
+  mockWhereForCover.mockClear().mockImplementation(function() {
+    const result = Promise.resolve([]);
+    (result as any).orderBy = mockOrderBy;
+    return result;
+  });
 });
 
 describe('manage-albums handler', () => {
@@ -100,14 +117,33 @@ describe('manage-albums handler', () => {
   });
 
   describe('GET /albums', () => {
-    it('returns list of albums', async () => {
+    it('returns albums with null coverUrl when no cover photos exist', async () => {
       const userAlbums = [{ id: 'a1', name: 'Test', userId: 'u1' }];
+      // First .where() for fetching user albums
       mockSelectWhere.mockResolvedValueOnce(userAlbums);
+      // Second .where() (after innerJoin) returns { orderBy }
+      // orderBy resolves to no cover rows
+      mockOrderBy.mockResolvedValueOnce([]);
 
       const result = await callHandler(makeEvent('GET', 'GET /albums', 'u1'));
 
       expect(result.statusCode).toBe(200);
-      expect(JSON.parse(result.body as string)).toEqual(userAlbums);
+      const body = JSON.parse(result.body as string);
+      expect(body[0].coverUrl).toBeNull();
+    });
+
+    it('attaches coverUrl when cover photo exists', async () => {
+      const userAlbums = [{ id: 'a1', name: 'Test', userId: 'u1' }];
+      mockSelectWhere.mockResolvedValueOnce(userAlbums);
+      mockOrderBy.mockResolvedValueOnce([
+        { albumId: 'a1', thumbnailKey: 'users/u1/thumbnails/pic.jpg' },
+      ]);
+
+      const result = await callHandler(makeEvent('GET', 'GET /albums', 'u1'));
+
+      expect(result.statusCode).toBe(200);
+      const body = JSON.parse(result.body as string);
+      expect(body[0].coverUrl).toBe('https://example.com/signed-url');
     });
   });
 
@@ -124,9 +160,14 @@ describe('manage-albums handler', () => {
 
     it('returns album with photos when found', async () => {
       const album = { id: 'a1', name: 'Test', userId: 'u1' };
-      mockSelectWhere
-        .mockResolvedValueOnce([album])
-        .mockResolvedValueOnce([{ photo: { id: 'p1', filename: 'pic.jpg' } }]);
+      // First .where() in GET /albums/{albumId} to fetch album
+      mockSelectWhere.mockResolvedValueOnce([album]);
+      // Second query uses innerJoin with mockWhereForCover
+      mockWhereForCover.mockImplementationOnce(function() {
+        const result = Promise.resolve([{ photo: { id: 'p1', filename: 'pic.jpg' } }]) as any;
+        result.orderBy = mockOrderBy;
+        return result;
+      });
 
       const result = await callHandler(
         makeEvent('GET', 'GET /albums/{albumId}', 'u1', { albumId: 'a1' }),

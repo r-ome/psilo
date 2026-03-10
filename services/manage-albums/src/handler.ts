@@ -1,7 +1,7 @@
 import { APIGatewayProxyEventV2WithJWTAuthorizer, APIGatewayProxyResultV2 } from 'aws-lambda';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, inArray, desc, isNotNull } from 'drizzle-orm';
 import { createDb } from '../../shared/db';
 import { albums, albumPhotos, photos } from '../../shared/schema';
 
@@ -38,7 +38,49 @@ export const handler = async (
   // GET /albums
   if (method === 'GET' && routeKey === 'GET /albums') {
     const userAlbums = await db.select().from(albums).where(eq(albums.userId, sub));
-    return respond(200, userAlbums);
+
+    if (userAlbums.length === 0) {
+      return respond(200, []);
+    }
+
+    const albumIds = userAlbums.map((a) => a.id);
+
+    // Single query: get most-recently-added completed photo with thumbnail per album
+    const coverRows = await db
+      .select({
+        albumId: albumPhotos.albumId,
+        thumbnailKey: photos.thumbnailKey,
+      })
+      .from(albumPhotos)
+      .innerJoin(photos, eq(albumPhotos.photoId, photos.id))
+      .where(
+        and(
+          inArray(albumPhotos.albumId, albumIds),
+          isNotNull(photos.thumbnailKey),
+          eq(photos.status, 'completed'),
+        ),
+      )
+      .orderBy(desc(albumPhotos.addedAt));
+
+    // Pick first (most recent) per album, generate presigned URL once per album
+    const coverMap = new Map<string, string>();
+    for (const row of coverRows) {
+      if (!coverMap.has(row.albumId) && row.thumbnailKey) {
+        const url = await getSignedUrl(
+          s3,
+          new GetObjectCommand({ Bucket: BUCKET_NAME, Key: row.thumbnailKey }),
+          { expiresIn: 3600 },
+        );
+        coverMap.set(row.albumId, url);
+      }
+    }
+
+    const result = userAlbums.map((album) => ({
+      ...album,
+      coverUrl: coverMap.get(album.id) ?? null,
+    }));
+
+    return respond(200, result);
   }
 
   // GET /albums/{albumId}
