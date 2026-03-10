@@ -9,7 +9,13 @@ import {
   DialogTrigger,
 } from "@/app/components/ui/dialog";
 import { Button } from "@/app/components/ui/button";
-import { CalendarDays, Trash2, Upload, CheckSquare, Square } from "lucide-react";
+import {
+  CalendarDays,
+  Trash2,
+  Upload,
+  CheckSquare,
+  Square,
+} from "lucide-react";
 import FileDropZone from "@/app/(protected)/components/FileDropZone";
 import PhotoGrid from "@/app/(protected)/components/PhotoGrid";
 import DeleteConfirmDialog from "@/app/(protected)/components/DeleteConfirmDialog";
@@ -19,6 +25,8 @@ import { photoService, Photo } from "@/app/lib/services/photo.service";
 
 export default function Page() {
   const [photos, setPhotos] = useState<Photo[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [photoToDelete, setPhotoToDelete] = useState<Photo | null>(null);
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -46,14 +54,33 @@ export default function Page() {
   const loadPhotos = useCallback(() => {
     photoService
       .listPhotos()
-      .then(setPhotos)
+      .then((data) => {
+        setPhotos(data.photos);
+        setNextCursor(data.nextCursor);
+      })
       .catch(() => {});
   }, []);
+
+  const loadMore = useCallback(() => {
+    if (!nextCursor) return;
+    setIsLoadingMore(true);
+    photoService
+      .listPhotos(nextCursor)
+      .then((data) => {
+        setPhotos((prev) => [...prev, ...data.photos]);
+        setNextCursor(data.nextCursor);
+      })
+      .catch(() => {})
+      .finally(() => setIsLoadingMore(false));
+  }, [nextCursor]);
 
   useEffect(() => {
     photoService
       .listPhotos()
-      .then(setPhotos)
+      .then((data) => {
+        setPhotos(data.photos);
+        setNextCursor(data.nextCursor);
+      })
       .catch(() => {});
   }, []);
 
@@ -65,7 +92,18 @@ export default function Page() {
     const id = setInterval(() => {
       photoService
         .listPhotos()
-        .then(setPhotos)
+        .then((data) => {
+          setPhotos((prev) => {
+            const updated = data.photos.reduce(
+              (map, p) => {
+                map[p.id] = p;
+                return map;
+              },
+              {} as Record<string, Photo>,
+            );
+            return prev.map((p) => updated[p.id] ?? p);
+          });
+        })
         .catch(() => {});
     }, 3000);
     return () => clearInterval(id);
@@ -166,7 +204,7 @@ export default function Page() {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 pb-8">
       <div className="flex justify-between items-center">
         <div className="flex items-center gap-2">
           <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
@@ -254,6 +292,17 @@ export default function Page() {
             onRetry={handleRetry}
             selectMode={selectMode}
           />
+          {nextCursor && (
+            <div className="flex justify-center mt-6">
+              <Button
+                variant="outline"
+                onClick={loadMore}
+                disabled={isLoadingMore}
+              >
+                {isLoadingMore ? "Loading..." : "Load more"}
+              </Button>
+            </div>
+          )}
         </div>
       )}
 

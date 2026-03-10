@@ -3,7 +3,7 @@ import { env } from "@/app/lib/env.server";
 import logger from "@/app/lib/logger";
 import { getValidToken } from "@/app/lib/auth/token";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   logger.info({ method: "GET", route: "/api/photos" }, "request");
 
   const accessToken = await getValidToken("access_token");
@@ -12,7 +12,12 @@ export async function GET() {
   }
 
   try {
-    const response = await fetch(`${env.BACKEND_API_URL}/photos`, {
+    const cursor = req.nextUrl.searchParams.get("cursor");
+    const limit = req.nextUrl.searchParams.get("limit");
+    const params = new URLSearchParams();
+    if (cursor) params.set("cursor", cursor);
+    if (limit) params.set("limit", limit);
+    const response = await fetch(`${env.BACKEND_API_URL}/photos?${params}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
       signal: AbortSignal.timeout(30000),
     });

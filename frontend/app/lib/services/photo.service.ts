@@ -21,8 +21,17 @@ export interface Photo {
   signedUrl: string;
 }
 
+export interface PaginatedPhotos {
+  photos: Photo[];
+  nextCursor: string | null;
+}
+
 export const photoService = {
-  listPhotos: () => api.get<Photo[]>("/api/photos"),
+  listPhotos: (cursor?: string) => {
+    const params = new URLSearchParams();
+    if (cursor) params.set("cursor", cursor);
+    return api.get<PaginatedPhotos>(`/api/photos${params.toString() ? `?${params}` : ""}`);
+  },
   deletePhoto: (key: string) =>
     api.delete<{ message: string }>(
       `/api/photos?key=${encodeURIComponent(key)}`,

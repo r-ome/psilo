@@ -58,7 +58,7 @@ export default function AlbumDetailPage({
       .catch(() => {});
     photoService
       .listPhotos()
-      .then(setAllPhotos)
+      .then((data) => setAllPhotos(data.photos))
       .catch(() => {});
   }, [albumId]);
 
