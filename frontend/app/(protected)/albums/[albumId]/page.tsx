@@ -356,6 +356,7 @@ export default function AlbumDetailPage({
         photos={album.photos}
         initialIndex={viewerIndex}
         onClose={() => setViewerIndex(null)}
+        currentAlbum={album}
       />
     </div>
   );

@@ -58,14 +58,37 @@ export const handler = async (
       .where(eq(albumPhotos.albumId, albumId));
 
     const photosWithUrls = await Promise.all(
-      albumPhotosList.map(async ({ photo }) => ({
-        ...photo,
-        signedUrl: await getSignedUrl(
-          s3,
-          new GetObjectCommand({ Bucket: BUCKET_NAME, Key: photo.s3Key }),
-          { expiresIn: 3600 },
-        ),
-      })),
+      albumPhotosList.map(async ({ photo }) => {
+        if (photo.contentType?.startsWith("video/")) {
+          // For videos, return signed URL of actual object (no thumbnails yet)
+          const signedUrl = await getSignedUrl(
+            s3,
+            new GetObjectCommand({ Bucket: BUCKET_NAME, Key: photo.s3Key }),
+            { expiresIn: 3600 },
+          );
+          return {
+            ...photo,
+            thumbnailUrl: null,
+            signedUrl,
+          };
+        } else {
+          // For photos, return only thumbnail URL
+          const thumbnailUrl = photo.thumbnailKey
+            ? await getSignedUrl(
+                s3,
+                new GetObjectCommand({
+                  Bucket: BUCKET_NAME,
+                  Key: photo.thumbnailKey,
+                }),
+                { expiresIn: 3600 },
+              )
+            : null;
+          return {
+            ...photo,
+            thumbnailUrl,
+          };
+        }
+      }),
     );
 
     return respond(200, { ...album, photos: photosWithUrls });

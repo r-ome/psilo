@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { Dialog, DialogContent, DialogTitle } from "@/app/components/ui/dialog";
+import { Button } from "@/app/components/ui/button";
 import {
   Carousel,
   CarouselContent,
@@ -11,22 +13,28 @@ import {
   CarouselPrevious,
   type CarouselApi,
 } from "@/app/components/ui/carousel";
+import { PlusCircle } from "lucide-react";
 import { Photo } from "@/app/lib/services/photo.service";
+import { Album } from "@/app/lib/services/album.service";
+import AddToAlbumModal from "./AddToAlbumModal";
 
 interface ImageViewerProps {
   photos: Photo[];
   initialIndex: number | null;
   onClose: () => void;
+  currentAlbum?: Album | null;
 }
 
 export default function ImageViewer({
   photos,
   initialIndex,
   onClose,
+  currentAlbum,
 }: ImageViewerProps) {
   const [api, setApi] = useState<CarouselApi>();
   const [currentIndex, setCurrentIndex] = useState(initialIndex ?? 0);
   const [prevInitialIndex, setPrevInitialIndex] = useState(initialIndex);
+  const [isAddToAlbumOpen, setIsAddToAlbumOpen] = useState(false);
 
   if (prevInitialIndex !== initialIndex && initialIndex !== null) {
     setPrevInitialIndex(initialIndex);
@@ -110,9 +118,9 @@ export default function ImageViewer({
           </Carousel>
         </div>
 
-        <div className="h-16 shrink-0 flex items-center justify-center gap-2 text-sm text-white/70 px-6">
+        <div className="h-16 shrink-0 flex items-center justify-between gap-2 text-sm text-white/70 px-6">
           {currentPhoto && (
-            <>
+            <div className="flex gap-2">
               <span>{currentPhoto.filename}</span>
               {currentPhoto.size != null && (
                 <span>
@@ -132,9 +140,33 @@ export default function ImageViewer({
                   )}
                 </span>
               )}
-            </>
+            </div>
+          )}
+          {currentAlbum ? (
+            <Link
+              href={`/albums/${currentAlbum.id}`}
+              className="text-white/70 hover:text-white transition-colors underline"
+            >
+              {currentAlbum.name}
+            </Link>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setIsAddToAlbumOpen(true)}
+              className="text-white/70 hover:text-white hover:bg-white/10"
+            >
+              <PlusCircle className="h-4 w-4 mr-1" />
+              Add to Album
+            </Button>
           )}
         </div>
+
+        <AddToAlbumModal
+          isOpen={isAddToAlbumOpen}
+          onClose={() => setIsAddToAlbumOpen(false)}
+          photo={currentPhoto ?? null}
+        />
       </DialogContent>
     </Dialog>
   );
