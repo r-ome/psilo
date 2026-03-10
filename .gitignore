@@ -75,3 +75,5 @@ coverage/
 # ===========================
 *.tsbuildinfo
 .turbo
+BILLING.md
+CHANGES.md
