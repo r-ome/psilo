@@ -67,7 +67,7 @@ export class PsiloStack extends cdk.Stack {
       writer: rds.ClusterInstance.serverlessV2("writer", {
         scaleWithWriter: true,
       }),
-      serverlessV2MinCapacity: 0.5,
+      serverlessV2MinCapacity: 0,
       serverlessV2MaxCapacity: 4,
       enableDataApi: true,
       credentials: rds.Credentials.fromSecret(dbSecret),
@@ -254,31 +254,41 @@ export class PsiloStack extends cdk.Stack {
       }),
     );
 
-    const lifecycleTransitionFn = new NodejsFunction(this, "LifecycleTransitionFn", {
-      entry: path.join(
-        __dirname,
-        "../../services/lifecycle-transition/src/handler.ts",
-      ),
-      handler: "handler",
-      runtime: lambda.Runtime.NODEJS_22_X,
-      environment: { ...dbEnv },
-      timeout: cdk.Duration.seconds(30),
-      bundling: { esbuildVersion: "0.21" },
-    });
+    const lifecycleTransitionFn = new NodejsFunction(
+      this,
+      "LifecycleTransitionFn",
+      {
+        entry: path.join(
+          __dirname,
+          "../../services/lifecycle-transition/src/handler.ts",
+        ),
+        handler: "handler",
+        runtime: lambda.Runtime.NODEJS_22_X,
+        environment: { ...dbEnv },
+        timeout: cdk.Duration.seconds(30),
+        bundling: { esbuildVersion: "0.21" },
+      },
+    );
 
     dbCluster.grantDataApiAccess(lifecycleTransitionFn);
     dbSecret.grantRead(lifecycleTransitionFn);
 
-    const s3TransitionRule = new events.Rule(this, "S3StorageClassChangedRule", {
-      eventPattern: {
-        source: ["aws.s3"],
-        detailType: ["Object Storage Class Changed"],
-        detail: {
-          bucket: { name: [userBucket.bucketName] },
+    const s3TransitionRule = new events.Rule(
+      this,
+      "S3StorageClassChangedRule",
+      {
+        eventPattern: {
+          source: ["aws.s3"],
+          detailType: ["Object Storage Class Changed"],
+          detail: {
+            bucket: { name: [userBucket.bucketName] },
+          },
         },
       },
-    });
-    s3TransitionRule.addTarget(new targets.LambdaFunction(lifecycleTransitionFn));
+    );
+    s3TransitionRule.addTarget(
+      new targets.LambdaFunction(lifecycleTransitionFn),
+    );
 
     const managePhotosFn = new NodejsFunction(this, "ManagePhotosFn", {
       entry: path.join(
