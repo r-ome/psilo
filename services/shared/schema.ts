@@ -25,6 +25,7 @@ export const photos = pgTable(
     thumbnailKey: varchar("thumbnail_key", { length: 1000 }),
     filename: varchar("filename", { length: 500 }).notNull(),
     size: integer("size"),
+    thumbnailSize: integer("thumbnail_size"),
     width: integer("width"),
     height: integer("height"),
     format: varchar("format", { length: 50 }),

@@ -141,6 +141,7 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
       let format: string | null = null;
       let takenAt: Date | null = null;
       let thumbnailKey: string | null = null;
+      let thumbnailSize: number | null = null;
 
       if (!contentType?.startsWith("video/")) {
         const response = await s3.send(
@@ -160,6 +161,7 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
 
         // Generate photo thumbnail
         const thumbnailBuffer = await generatePhotoThumbnail(rawBuffer);
+        thumbnailSize = thumbnailBuffer.length;
         const thumbnailPath = key
           .replace(/\/(photos|videos)\//, "/thumbnails/")
           .replace(/\.[^.]+$/, ".jpg");
@@ -201,6 +203,7 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
           contentType,
           takenAt,
           thumbnailKey,
+          thumbnailSize,
         })
         .where(eq(photos.s3Key, key));
 

@@ -31,7 +31,13 @@ export interface PaginatedPhotos {
 export interface StorageSize {
   standardSize: number; // bytes
   glacierSize: number; // bytes
+  thumbnailSize: number; // bytes
   standardCount: number; // number of standard files
+  glacierCount: number; // number of glacier files
+  standardPhotoCount: number; // photos in standard
+  standardVideoCount: number; // videos in standard
+  glacierPhotoCount: number; // photos in glacier
+  glacierVideoCount: number; // videos in glacier
 }
 
 export const photoService = {

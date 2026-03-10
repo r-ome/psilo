@@ -57,6 +57,20 @@
       "when": 1773273600000,
       "tag": "0007_add_thumbnail_key",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1773114191434,
+      "tag": "0008_public_punisher",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1773121876161,
+      "tag": "0009_simple_paibok",
+      "breakpoints": true
     }
   ]
 }

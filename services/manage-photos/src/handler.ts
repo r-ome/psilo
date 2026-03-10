@@ -37,22 +37,50 @@ export const handler = async (
         .select({
           storageClass: photos.storageClass,
           totalSize: sql<number>`COALESCE(SUM(${photos.size}), 0)`,
+          thumbnailSize: sql<number>`COALESCE(SUM(${photos.thumbnailSize}), 0)`,
           count: sql<number>`COUNT(*)`,
+          photoCount: sql<number>`COALESCE(SUM(CASE WHEN ${photos.contentType} IS NULL OR ${photos.contentType} NOT LIKE 'video/%' THEN 1 ELSE 0 END), 0)`,
+          videoCount: sql<number>`COALESCE(SUM(CASE WHEN ${photos.contentType} LIKE 'video/%' THEN 1 ELSE 0 END), 0)`,
         })
         .from(photos)
         .where(eq(photos.userId, sub))
         .groupBy(photos.storageClass);
 
-      let standardSize = 0, glacierSize = 0, standardCount = 0;
+      let standardSize = 0,
+        glacierSize = 0,
+        thumbnailSize = 0;
+      let standardCount = 0,
+        glacierCount = 0;
+      let standardPhotoCount = 0,
+        standardVideoCount = 0;
+      let glacierPhotoCount = 0,
+        glacierVideoCount = 0;
+
       for (const row of result) {
+        thumbnailSize += Number(row.thumbnailSize);
         if (row.storageClass === "STANDARD") {
           standardSize = Number(row.totalSize);
           standardCount = Number(row.count);
+          standardPhotoCount = Number(row.photoCount);
+          standardVideoCount = Number(row.videoCount);
         } else if (row.storageClass === "GLACIER") {
           glacierSize = Number(row.totalSize);
+          glacierCount = Number(row.count);
+          glacierPhotoCount = Number(row.photoCount);
+          glacierVideoCount = Number(row.videoCount);
         }
       }
-      return respond(200, { standardSize, glacierSize, standardCount });
+      return respond(200, {
+        standardSize,
+        glacierSize,
+        thumbnailSize,
+        standardCount,
+        glacierCount,
+        standardPhotoCount,
+        standardVideoCount,
+        glacierPhotoCount,
+        glacierVideoCount,
+      });
     }
 
     const cursor = event.queryStringParameters?.cursor;
@@ -105,15 +133,17 @@ export const handler = async (
 
     const lastPhoto = resultPhotos[resultPhotos.length - 1];
     const sortDate = lastPhoto.takenAt || lastPhoto.createdAt;
-    const sortDateStr = typeof sortDate === "string" ? sortDate : sortDate?.toISOString();
-    const nextCursor = hasMore && lastPhoto && sortDateStr
-      ? Buffer.from(
-          JSON.stringify({
-            sortDate: sortDateStr,
-            id: lastPhoto.id,
-          }),
-        ).toString("base64")
-      : null;
+    const sortDateStr =
+      typeof sortDate === "string" ? sortDate : sortDate?.toISOString();
+    const nextCursor =
+      hasMore && lastPhoto && sortDateStr
+        ? Buffer.from(
+            JSON.stringify({
+              sortDate: sortDateStr,
+              id: lastPhoto.id,
+            }),
+          ).toString("base64")
+        : null;
 
     const photosWithUrls = await Promise.all(
       resultPhotos.map(async (photo) => {
@@ -134,7 +164,10 @@ export const handler = async (
           const thumbnailUrl = photo.thumbnailKey
             ? await getSignedUrl(
                 s3,
-                new GetObjectCommand({ Bucket: BUCKET_NAME, Key: photo.thumbnailKey }),
+                new GetObjectCommand({
+                  Bucket: BUCKET_NAME,
+                  Key: photo.thumbnailKey,
+                }),
                 { expiresIn: 3600 },
               )
             : null;
