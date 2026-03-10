@@ -362,7 +362,7 @@ export class PsiloStack extends cdk.Stack {
 
     httpApi.addRoutes({
       path: "/photos",
-      methods: [apigatewayv2.HttpMethod.GET],
+      methods: [apigatewayv2.HttpMethod.GET, apigatewayv2.HttpMethod.DELETE],
       integration: managePhotosIntegration,
       authorizer: cognitoAuthorizer,
     });

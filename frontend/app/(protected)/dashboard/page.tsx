@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -35,6 +35,7 @@ export default function Page() {
   const [bulkUpdatePending, setBulkUpdatePending] = useState(false);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   const totalSizeMB = useMemo(() => {
     const bytes = photos.reduce((sum, p) => sum + (p.size ?? 0), 0);
@@ -73,6 +74,21 @@ export default function Page() {
       .catch(() => {})
       .finally(() => setIsLoadingMore(false));
   }, [nextCursor]);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && nextCursor && !isLoadingMore) {
+          loadMore();
+        }
+      },
+      { threshold: 0.1 },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [nextCursor, isLoadingMore, loadMore]);
 
   useEffect(() => {
     photoService
@@ -189,7 +205,7 @@ export default function Page() {
     setBulkDeletePending(false);
     setSelectedIds(new Set());
     try {
-      await Promise.all(toDelete.map((p) => photoService.deletePhoto(p.s3Key)));
+      await photoService.deletePhotos(toDelete.map((p) => p.s3Key));
       setPhotos((prev) =>
         prev.filter((p) => !toDelete.some((d) => d.id === p.id)),
       );
@@ -292,15 +308,10 @@ export default function Page() {
             onRetry={handleRetry}
             selectMode={selectMode}
           />
-          {nextCursor && (
-            <div className="flex justify-center mt-6">
-              <Button
-                variant="outline"
-                onClick={loadMore}
-                disabled={isLoadingMore}
-              >
-                {isLoadingMore ? "Loading..." : "Load more"}
-              </Button>
+          <div ref={sentinelRef} className="h-4" />
+          {isLoadingMore && (
+            <div className="flex justify-center mt-4 text-sm text-muted-foreground">
+              Loading...
             </div>
           )}
         </div>

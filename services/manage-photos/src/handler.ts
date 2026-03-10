@@ -5,10 +5,11 @@ import {
 import {
   S3Client,
   DeleteObjectCommand,
+  DeleteObjectsCommand,
   GetObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { eq, desc, sql, and, or, lt } from "drizzle-orm";
+import { eq, desc, sql, and, or, lt, inArray } from "drizzle-orm";
 import { createDb } from "../../shared/db";
 import { photos } from "../../shared/schema";
 
@@ -183,6 +184,41 @@ export const handler = async (
   }
 
   if (method === "DELETE") {
+    // Bulk delete: body with keys array
+    if (event.body) {
+      let body: unknown;
+      try {
+        body = JSON.parse(event.body);
+      } catch {
+        return respond(400, { message: "Invalid JSON body" });
+      }
+      if (
+        body &&
+        typeof body === "object" &&
+        "keys" in body &&
+        Array.isArray((body as { keys: unknown }).keys)
+      ) {
+        const keys = (body as { keys: string[] }).keys;
+        // Ownership guard: all keys must belong to sub
+        for (const key of keys) {
+          const parts = key.split("/");
+          const userSegment = parts[1] ?? "";
+          const keyUserId = userSegment.slice(-36);
+          if (keyUserId !== sub) {
+            return respond(403, { message: "Forbidden" });
+          }
+        }
+        await s3.send(
+          new DeleteObjectsCommand({
+            Bucket: BUCKET_NAME,
+            Delete: { Objects: keys.map((Key) => ({ Key })) },
+          }),
+        );
+        await db.delete(photos).where(inArray(photos.s3Key, keys));
+        return respond(200, { message: "Photos deleted" });
+      }
+    }
+
     const key = event.pathParameters?.key;
     if (!key) {
       return respond(400, { message: "Missing photo key" });

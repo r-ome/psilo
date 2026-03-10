@@ -80,11 +80,25 @@ export async function DELETE(req: NextRequest) {
   }
 
   const key = req.nextUrl.searchParams.get("key");
-  if (!key) {
-    return NextResponse.json({ message: "key is required" }, { status: 400 });
-  }
 
   try {
+    if (!key) {
+      const body = await req.json().catch(() => null);
+      if (body && Array.isArray(body.keys)) {
+        const response = await fetch(`${env.BACKEND_API_URL}/photos`, {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ keys: body.keys }),
+        });
+        const data = await response.json();
+        return NextResponse.json(data, { status: response.status });
+      }
+      return NextResponse.json({ message: "key is required" }, { status: 400 });
+    }
+
     const response = await fetch(`${env.BACKEND_API_URL}/photos/${key}`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${accessToken}` },
