@@ -1,6 +1,6 @@
 import { SQSEvent, SQSBatchResponse } from 'aws-lambda';
 import { mockClient } from 'aws-sdk-client-mock';
-import { S3Client, GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, GetObjectCommand, HeadObjectCommand, PutObjectCommand, PutObjectTaggingCommand } from '@aws-sdk/client-s3';
 import { Readable } from 'stream';
 
 const s3Mock = mockClient(S3Client);
@@ -37,11 +37,37 @@ const mockSharpMetadata = jest.fn().mockResolvedValue({
   exif: undefined,
 });
 
+const mockRotate = jest.fn();
+const mockResize = jest.fn();
+const mockToColorspace = jest.fn();
+const mockJpeg = jest.fn();
+const mockWithMetadata = jest.fn();
+const mockToBuffer = jest.fn().mockResolvedValue(Buffer.from('thumbnail-data'));
+
 jest.mock('sharp', () => {
-  return jest.fn(() => ({
-    metadata: mockSharpMetadata,
-  }));
+  return jest.fn((buffer) => {
+    if (buffer === undefined) {
+      // Called with no args for metadata only
+      return { metadata: mockSharpMetadata };
+    }
+    // Called with buffer for thumbnail generation
+    mockRotate.mockReturnThis();
+    mockResize.mockReturnThis();
+    mockToColorspace.mockReturnThis();
+    mockJpeg.mockReturnThis();
+    mockWithMetadata.mockReturnThis();
+    return {
+      metadata: mockSharpMetadata,
+      rotate: mockRotate,
+      resize: mockResize,
+      toColorspace: mockToColorspace,
+      jpeg: mockJpeg,
+      withMetadata: mockWithMetadata,
+      toBuffer: mockToBuffer,
+    };
+  });
 });
+
 
 function makeSqsEvent(key: string, size = 12345): SQSEvent {
   const s3Event = {
@@ -82,6 +108,12 @@ beforeEach(() => {
   mockSet.mockClear();
   mockWhere.mockClear();
   mockExifReader.mockClear();
+  mockRotate.mockClear().mockReturnThis();
+  mockResize.mockClear().mockReturnThis();
+  mockToColorspace.mockClear().mockReturnThis();
+  mockJpeg.mockClear().mockReturnThis();
+  mockWithMetadata.mockClear().mockReturnThis();
+  mockToBuffer.mockClear().mockResolvedValue(Buffer.from('thumbnail-data'));
   mockSharpMetadata.mockResolvedValue({
     width: 1920,
     height: 1080,
@@ -89,12 +121,22 @@ beforeEach(() => {
     exif: undefined,
   });
   s3Mock.on(HeadObjectCommand).resolves({ ContentType: 'image/jpeg', LastModified: defaultLastModified });
+  s3Mock.on(PutObjectCommand).resolves({});
+  s3Mock.on(PutObjectTaggingCommand).resolves({});
 });
 
 describe('process-photo-metadata handler', () => {
   it('skips folder marker objects (keys ending with /)', async () => {
     const { handler } = await import('../src/handler');
-    const result = await handler(makeSqsEvent('users/u1/')) as SQSBatchResponse;
+    const result = await handler(makeSqsEvent('users/u1/photos/')) as SQSBatchResponse;
+
+    expect(mockInsert).not.toHaveBeenCalled();
+    expect(result.batchItemFailures).toHaveLength(0);
+  });
+
+  it('skips thumbnail objects in thumbnails/ subfolder', async () => {
+    const { handler } = await import('../src/handler');
+    const result = await handler(makeSqsEvent('users/u1/thumbnails/photo.jpg')) as SQSBatchResponse;
 
     expect(mockInsert).not.toHaveBeenCalled();
     expect(result.batchItemFailures).toHaveLength(0);
@@ -115,13 +157,13 @@ describe('process-photo-metadata handler', () => {
     });
 
     const { handler } = await import('../src/handler');
-    await handler(makeSqsEvent('users/u1/photo.jpg'));
+    await handler(makeSqsEvent('users/u1/photos/photo.jpg'));
 
     const calls = s3Mock.commandCalls(GetObjectCommand);
     expect(calls).toHaveLength(1);
     expect(calls[0].args[0].input).toMatchObject({
       Bucket: 'test-bucket',
-      Key: 'users/u1/photo.jpg',
+      Key: 'users/u1/photos/photo.jpg',
     });
   });
 
@@ -132,14 +174,14 @@ describe('process-photo-metadata handler', () => {
     });
 
     const { handler } = await import('../src/handler');
-    await handler(makeSqsEvent('users/u1/photo.jpg', 12345));
+    await handler(makeSqsEvent('users/u1/photos/photo.jpg', 12345));
 
     // Phase 1: insert with processing status
     expect(mockInsert).toHaveBeenCalledWith('photos_table');
     expect(mockValues).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: 'u1',
-        s3Key: 'users/u1/photo.jpg',
+        s3Key: 'users/u1/photos/photo.jpg',
         filename: 'photo.jpg',
         size: 12345,
         status: 'processing',
@@ -149,7 +191,7 @@ describe('process-photo-metadata handler', () => {
       expect.objectContaining({ set: { status: 'processing' } }),
     );
 
-    // Phase 3: update to completed (no EXIF, no date in filename → takenAt falls back to S3 LastModified)
+    // Phase 3: update to completed with thumbnail (includes takenAt and thumbnailKey)
     expect(mockUpdate).toHaveBeenCalledWith('photos_table');
     expect(mockSet).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -159,15 +201,21 @@ describe('process-photo-metadata handler', () => {
         format: 'jpeg',
         contentType: 'image/jpeg',
         takenAt: defaultLastModified,
+        thumbnailKey: 'users/u1/thumbnails/photo.jpg',
       }),
     );
+
+    // Verify thumbnail was uploaded and original was tagged
+    const putCommands = s3Mock.commandCalls(PutObjectCommand);
+    expect(putCommands.length).toBeGreaterThan(0);
+    expect(s3Mock.commandCalls(PutObjectTaggingCommand)).toHaveLength(1);
   });
 
   it('returns batchItemFailures when S3 download fails', async () => {
     s3Mock.on(GetObjectCommand).rejects(new Error('S3 error'));
 
     const { handler } = await import('../src/handler');
-    const result = await handler(makeSqsEvent('users/u1/photo.jpg')) as SQSBatchResponse;
+    const result = await handler(makeSqsEvent('users/u1/photos/photo.jpg')) as SQSBatchResponse;
 
     expect(result.batchItemFailures).toEqual([{ itemIdentifier: 'msg-1' }]);
   });
@@ -191,7 +239,7 @@ describe('process-photo-metadata handler', () => {
     });
 
     const { handler } = await import('../src/handler');
-    await handler(makeSqsEvent('users/u1/photo.jpg'));
+    await handler(makeSqsEvent('users/u1/photos/photo.jpg'));
 
     expect(mockExifReader).toHaveBeenCalledWith(fakeExif);
     expect(mockSet).toHaveBeenCalledWith(
@@ -219,7 +267,7 @@ describe('process-photo-metadata handler', () => {
     });
 
     const { handler } = await import('../src/handler');
-    await handler(makeSqsEvent('users/u1/photo.jpg'));
+    await handler(makeSqsEvent('users/u1/photos/photo.jpg'));
 
     expect(mockSet).toHaveBeenCalledWith(
       expect.objectContaining({ takenAt: takenDate }),
@@ -239,7 +287,7 @@ describe('process-photo-metadata handler', () => {
     });
 
     const { handler } = await import('../src/handler');
-    await handler(makeSqsEvent('users/u1/photo.png'));
+    await handler(makeSqsEvent('users/u1/photos/photo.png'));
 
     expect(mockExifReader).not.toHaveBeenCalled();
     expect(mockSet).toHaveBeenCalledWith(
@@ -263,7 +311,7 @@ describe('process-photo-metadata handler', () => {
     });
 
     const { handler } = await import('../src/handler');
-    const result = await handler(makeSqsEvent('users/u1/IMG_20231215_103045.jpg')) as SQSBatchResponse;
+    const result = await handler(makeSqsEvent('users/u1/photos/IMG_20231215_103045.jpg')) as SQSBatchResponse;
 
     expect(result.batchItemFailures).toHaveLength(0);
     expect(mockSet).toHaveBeenCalledWith(
@@ -278,7 +326,7 @@ describe('process-photo-metadata handler', () => {
     });
 
     const { handler } = await import('../src/handler');
-    await handler(makeSqsEvent('users/u1/2026-03-02 17.08.14.jpg'));
+    await handler(makeSqsEvent('users/u1/photos/2026-03-02 17.08.14.jpg'));
 
     expect(mockSet).toHaveBeenCalledWith(
       expect.objectContaining({ takenAt: new Date('2026-03-02T17:08:14') }),
@@ -292,7 +340,7 @@ describe('process-photo-metadata handler', () => {
     });
 
     const { handler } = await import('../src/handler');
-    await handler(makeSqsEvent('users/u1/IMG_20230615_143022.jpg'));
+    await handler(makeSqsEvent('users/u1/photos/IMG_20230615_143022.jpg'));
 
     expect(mockSet).toHaveBeenCalledWith(
       expect.objectContaining({ takenAt: new Date('2023-06-15T14:30:22') }),
@@ -306,7 +354,7 @@ describe('process-photo-metadata handler', () => {
     });
 
     const { handler } = await import('../src/handler');
-    await handler(makeSqsEvent('users/u1/Screenshot_20230615-143022.jpg'));
+    await handler(makeSqsEvent('users/u1/photos/Screenshot_20230615-143022.jpg'));
 
     expect(mockSet).toHaveBeenCalledWith(
       expect.objectContaining({ takenAt: new Date('2023-06-15T14:30:22') }),
@@ -320,7 +368,7 @@ describe('process-photo-metadata handler', () => {
     });
 
     const { handler } = await import('../src/handler');
-    await handler(makeSqsEvent('users/u1/IMG-20231215-WA0001.jpg'));
+    await handler(makeSqsEvent('users/u1/photos/IMG-20231215-WA0001.jpg'));
 
     expect(mockSet).toHaveBeenCalledWith(
       expect.objectContaining({ takenAt: new Date('2023-12-15') }),
@@ -333,7 +381,7 @@ describe('process-photo-metadata handler', () => {
     });
 
     const { handler } = await import('../src/handler');
-    await handler(makeSqsEvent('users/u1/IMG_1234.jpg'));
+    await handler(makeSqsEvent('users/u1/photos/IMG_1234.jpg'));
 
     expect(mockSet).toHaveBeenCalledWith(
       expect.objectContaining({ takenAt: defaultLastModified }),
@@ -348,7 +396,7 @@ describe('process-photo-metadata handler', () => {
     });
 
     const { handler } = await import('../src/handler');
-    await handler(makeSqsEvent('users/u1/photo.jpg'));
+    await handler(makeSqsEvent('users/u1/photos/photo.jpg'));
 
     expect(mockSet).toHaveBeenCalledWith(
       expect.objectContaining({ takenAt: customLastModified }),
@@ -359,7 +407,7 @@ describe('process-photo-metadata handler', () => {
     s3Mock.on(HeadObjectCommand).resolves({ ContentType: 'video/mp4', LastModified: defaultLastModified });
 
     const { handler } = await import('../src/handler');
-    await handler(makeSqsEvent('users/u1/video.mp4'));
+    await handler(makeSqsEvent('users/u1/videos/video.mp4'));
 
     expect(mockSet).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -390,7 +438,7 @@ describe('process-photo-metadata handler', () => {
 
     const { handler } = await import('../src/handler');
     // filename has a different date — EXIF should win
-    await handler(makeSqsEvent('users/u1/IMG_20231215_103045.jpg'));
+    await handler(makeSqsEvent('users/u1/photos/IMG_20231215_103045.jpg'));
 
     expect(mockSet).toHaveBeenCalledWith(
       expect.objectContaining({ takenAt: exifDate }),

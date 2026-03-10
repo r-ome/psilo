@@ -1,5 +1,6 @@
 import {
   pgTable,
+  index,
   uuid,
   varchar,
   integer,
@@ -15,20 +16,27 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-export const photos = pgTable("photos", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userId: varchar("user_id", { length: 255 }).notNull(),
-  s3Key: varchar("s3_key", { length: 1000 }).notNull().unique(),
-  filename: varchar("filename", { length: 500 }).notNull(),
-  size: integer("size"),
-  width: integer("width"),
-  height: integer("height"),
-  format: varchar("format", { length: 50 }),
-  contentType: varchar("content_type", { length: 100 }),
-  status: varchar("status", { length: 20 }).notNull().default("pending"),
-  takenAt: timestamp("taken_at"),
-  createdAt: timestamp("created_at").defaultNow(),
-});
+export const photos = pgTable(
+  "photos",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: varchar("user_id", { length: 255 }).notNull(),
+    s3Key: varchar("s3_key", { length: 1000 }).notNull().unique(),
+    thumbnailKey: varchar("thumbnail_key", { length: 1000 }),
+    filename: varchar("filename", { length: 500 }).notNull(),
+    size: integer("size"),
+    width: integer("width"),
+    height: integer("height"),
+    format: varchar("format", { length: 50 }),
+    contentType: varchar("content_type", { length: 100 }),
+    status: varchar("status", { length: 20 }).notNull().default("pending"),
+    takenAt: timestamp("taken_at"),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => ({
+    userIdIdx: index("idx_photos_user_id").on(table.userId),
+  }),
+);
 
 export const albums = pgTable("albums", {
   id: uuid("id").primaryKey().defaultRandom(),

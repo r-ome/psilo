@@ -30,7 +30,8 @@ export const handler = async (
   const userPrefix = givenName && familyName
     ? `${givenName}-${familyName}-${userId}`
     : userId;
-  const key = `users/${userPrefix}/${filename}`;
+  const subFolder = contentType.startsWith('video/') ? 'videos' : 'photos';
+  const key = `users/${userPrefix}/${subFolder}/${filename}`;
 
   const command = new PutObjectCommand({
     Bucket: BUCKET_NAME,

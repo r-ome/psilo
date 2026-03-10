@@ -255,7 +255,7 @@ export default function AlbumDetailPage({
                   >
                     <div className="relative aspect-square bg-muted">
                       <Image
-                        src={photo.signedUrl}
+                        src={photo.contentType?.startsWith("video/") ? (photo.signedUrl || "") : (photo.thumbnailUrl || "")}
                         alt={photo.filename}
                         fill
                         className="object-cover"

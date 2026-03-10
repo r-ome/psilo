@@ -10,6 +10,7 @@ import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import * as apigatewayv2 from "aws-cdk-lib/aws-apigatewayv2";
 import * as apigatewayv2Integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import * as apigatewayv2Authorizers from "aws-cdk-lib/aws-apigatewayv2-authorizers";
+import * as iam from "aws-cdk-lib/aws-iam";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { SqsEventSource } from "aws-cdk-lib/aws-lambda-event-sources";
 import * as path from "path";
@@ -70,7 +71,9 @@ export class PsiloStack extends cdk.Stack {
       defaultDatabaseName: "psilo",
       vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
-      removalPolicy: isProd ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
+      removalPolicy: isProd
+        ? cdk.RemovalPolicy.RETAIN
+        : cdk.RemovalPolicy.DESTROY,
     });
 
     const dbEnv = {
@@ -136,52 +139,76 @@ export class PsiloStack extends cdk.Stack {
       generateSecret: false,
     });
 
-    const generatePresignedUrlFn = new NodejsFunction(this, "GeneratePresignedUrlFn", {
-      entry: path.join(__dirname, "../../services/generate-presigned-url/src/handler.ts"),
-      handler: "handler",
-      runtime: lambda.Runtime.NODEJS_22_X,
-      environment: {
-        BUCKET_NAME: userBucket.bucketName,
+    const generatePresignedUrlFn = new NodejsFunction(
+      this,
+      "GeneratePresignedUrlFn",
+      {
+        entry: path.join(
+          __dirname,
+          "../../services/generate-presigned-url/src/handler.ts",
+        ),
+        handler: "handler",
+        runtime: lambda.Runtime.NODEJS_22_X,
+        environment: {
+          BUCKET_NAME: userBucket.bucketName,
+        },
+        timeout: cdk.Duration.seconds(10),
+        bundling: {
+          esbuildVersion: "0.21",
+        },
       },
-      timeout: cdk.Duration.seconds(10),
-      bundling: {
-        esbuildVersion: "0.21",
-      },
-    });
+    );
 
     userBucket.grantPut(generatePresignedUrlFn);
 
-    const processPhotoMetadataFn = new NodejsFunction(this, "ProcessPhotoMetadataFn", {
-      entry: path.join(__dirname, "../../services/process-photo-metadata/src/handler.ts"),
-      handler: "handler",
-      runtime: lambda.Runtime.NODEJS_22_X,
-      environment: {
-        BUCKET_NAME: userBucket.bucketName,
-        ...dbEnv,
-      },
-      timeout: cdk.Duration.seconds(300),
-      memorySize: 3008,
-      bundling: {
-        esbuildVersion: "0.21",
-        nodeModules: ["sharp"],
-        commandHooks: {
-          beforeBundling: () => [],
-          beforeInstall: () => [],
-          afterBundling: (_inputDir: string, outputDir: string) => [
-            `cd ${outputDir} && rm -rf node_modules/sharp node_modules/@img && npm install --os=linux --cpu=x64 sharp`,
-          ],
+    const processPhotoMetadataFn = new NodejsFunction(
+      this,
+      "ProcessPhotoMetadataFn",
+      {
+        entry: path.join(
+          __dirname,
+          "../../services/process-photo-metadata/src/handler.ts",
+        ),
+        handler: "handler",
+        runtime: lambda.Runtime.NODEJS_22_X,
+        environment: {
+          BUCKET_NAME: userBucket.bucketName,
+          ...dbEnv,
+        },
+        timeout: cdk.Duration.seconds(300),
+        memorySize: 3008,
+        bundling: {
+          esbuildVersion: "0.21",
+          nodeModules: ["sharp"],
+          commandHooks: {
+            beforeBundling: () => [],
+            beforeInstall: () => [],
+            afterBundling: (_inputDir: string, outputDir: string) => [
+              `cd ${outputDir} && rm -rf node_modules/sharp node_modules/@img && npm install --os=linux --cpu=x64 sharp`,
+            ],
+          },
         },
       },
-    });
+    );
 
     userBucket.grantRead(processPhotoMetadataFn);
+    userBucket.grantPut(processPhotoMetadataFn, "users/*/thumbnails/*");
+    userBucket.grantWrite(processPhotoMetadataFn, "users/*/thumbnails/*");
     dbCluster.grantDataApiAccess(processPhotoMetadataFn);
     dbSecret.grantRead(processPhotoMetadataFn);
     uploadQueue.grantConsumeMessages(processPhotoMetadataFn);
-    processPhotoMetadataFn.addEventSource(new SqsEventSource(uploadQueue, {
-      batchSize: 1,
-      reportBatchItemFailures: true,
-    }));
+    processPhotoMetadataFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["s3:PutObjectTagging"],
+        resources: [`${userBucket.bucketArn}/users/*`],
+      }),
+    );
+    processPhotoMetadataFn.addEventSource(
+      new SqsEventSource(uploadQueue, {
+        batchSize: 1,
+        reportBatchItemFailures: true,
+      }),
+    );
 
     userBucket.addEventNotification(
       s3.EventType.OBJECT_CREATED,
@@ -189,8 +216,24 @@ export class PsiloStack extends cdk.Stack {
       { prefix: "users/" },
     );
 
+    // S3 lifecycle rule: archive originals to Glacier based on tag
+    userBucket.addLifecycleRule({
+      id: "archive-originals",
+      enabled: true,
+      tagFilters: { "media-type": "original" },
+      transitions: [
+        {
+          storageClass: s3.StorageClass.GLACIER,
+          transitionAfter: cdk.Duration.days(0),
+        },
+      ],
+    });
+
     const handleUploadDlqFn = new NodejsFunction(this, "HandleUploadDlqFn", {
-      entry: path.join(__dirname, "../../services/handle-upload-dlq/src/handler.ts"),
+      entry: path.join(
+        __dirname,
+        "../../services/handle-upload-dlq/src/handler.ts",
+      ),
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
       environment: { ...dbEnv },
@@ -201,13 +244,18 @@ export class PsiloStack extends cdk.Stack {
     dbCluster.grantDataApiAccess(handleUploadDlqFn);
     dbSecret.grantRead(handleUploadDlqFn);
     uploadDlq.grantConsumeMessages(handleUploadDlqFn);
-    handleUploadDlqFn.addEventSource(new SqsEventSource(uploadDlq, {
-      batchSize: 1,
-      reportBatchItemFailures: true,
-    }));
+    handleUploadDlqFn.addEventSource(
+      new SqsEventSource(uploadDlq, {
+        batchSize: 1,
+        reportBatchItemFailures: true,
+      }),
+    );
 
     const managePhotosFn = new NodejsFunction(this, "ManagePhotosFn", {
-      entry: path.join(__dirname, "../../services/manage-photos/src/handler.ts"),
+      entry: path.join(
+        __dirname,
+        "../../services/manage-photos/src/handler.ts",
+      ),
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
       environment: {
@@ -226,7 +274,10 @@ export class PsiloStack extends cdk.Stack {
     dbSecret.grantRead(managePhotosFn);
 
     const manageAlbumsFn = new NodejsFunction(this, "ManageAlbumsFn", {
-      entry: path.join(__dirname, "../../services/manage-albums/src/handler.ts"),
+      entry: path.join(
+        __dirname,
+        "../../services/manage-albums/src/handler.ts",
+      ),
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
       environment: {
@@ -274,10 +325,11 @@ export class PsiloStack extends cdk.Stack {
       authorizer: cognitoAuthorizer,
     });
 
-    const managePhotosIntegration = new apigatewayv2Integrations.HttpLambdaIntegration(
-      "ManagePhotosIntegration",
-      managePhotosFn,
-    );
+    const managePhotosIntegration =
+      new apigatewayv2Integrations.HttpLambdaIntegration(
+        "ManagePhotosIntegration",
+        managePhotosFn,
+      );
 
     httpApi.addRoutes({
       path: "/photos",
@@ -293,10 +345,11 @@ export class PsiloStack extends cdk.Stack {
       authorizer: cognitoAuthorizer,
     });
 
-    const manageAlbumsIntegration = new apigatewayv2Integrations.HttpLambdaIntegration(
-      "ManageAlbumsIntegration",
-      manageAlbumsFn,
-    );
+    const manageAlbumsIntegration =
+      new apigatewayv2Integrations.HttpLambdaIntegration(
+        "ManageAlbumsIntegration",
+        manageAlbumsFn,
+      );
 
     httpApi.addRoutes({
       path: "/albums",

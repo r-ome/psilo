@@ -56,10 +56,10 @@ describe('handler', () => {
       expect(result).toMatchObject({ statusCode: 200 });
       const body = JSON.parse((result as { body: string }).body);
       expect(body.url).toBe('https://s3.example.com/presigned');
-      expect(body.key).toBe('users/user-123/file.txt');
+      expect(body.key).toBe('users/user-123/photos/file.txt');
     });
 
-    it('formats key as users/{userId}/{filename}', async () => {
+    it('routes photos to photos/ subdirectory', async () => {
       mockGetSignedUrl.mockResolvedValue('https://s3.example.com/presigned');
 
       const result = await handler(
@@ -67,10 +67,21 @@ describe('handler', () => {
       );
 
       const body = JSON.parse((result as { body: string }).body);
-      expect(body.key).toBe('users/sub123/photo.jpg');
+      expect(body.key).toBe('users/sub123/photos/photo.jpg');
     });
 
-    it('calls getSignedUrl with correct params', async () => {
+    it('routes videos to videos/ subdirectory', async () => {
+      mockGetSignedUrl.mockResolvedValue('https://s3.example.com/presigned');
+
+      const result = await handler(
+        makeEvent({ filename: 'video.mp4', contentType: 'video/mp4' }, 'sub123'),
+      );
+
+      const body = JSON.parse((result as { body: string }).body);
+      expect(body.key).toBe('users/sub123/videos/video.mp4');
+    });
+
+    it('calls getSignedUrl with correct params for photo', async () => {
       mockGetSignedUrl.mockResolvedValue('https://example.com/url');
 
       await handler(makeEvent({ filename: 'file.txt', contentType: 'image/png' }, 'sub123'));
@@ -80,7 +91,7 @@ describe('handler', () => {
       const [, commandArg, optionsArg] = calls;
       expect(commandArg.input).toEqual({
         Bucket: 'test-bucket',
-        Key: 'users/sub123/file.txt',
+        Key: 'users/sub123/photos/file.txt',
         ContentType: 'image/png',
       });
       expect(optionsArg).toEqual({ expiresIn: 3600 });

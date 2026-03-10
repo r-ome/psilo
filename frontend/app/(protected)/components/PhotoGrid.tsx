@@ -71,6 +71,7 @@ export default function PhotoGrid({
                 const isFailed = photo.status === "failed";
                 const isProcessing =
                   photo.status === "pending" || photo.status === "processing";
+                const isVideo = photo.contentType?.startsWith("video/");
 
                 return (
                   <div
@@ -101,7 +102,7 @@ export default function PhotoGrid({
                     >
                       {isCompleted ? (
                         <>
-                          {photo.contentType?.startsWith("video/") ? (
+                          {isVideo && photo.signedUrl ? (
                             <video
                               autoPlay
                               muted
@@ -110,19 +111,19 @@ export default function PhotoGrid({
                               className="absolute inset-0 w-full h-full object-cover"
                             >
                               <source
-                                src={photo.signedUrl}
-                                type={photo.contentType}
+                                src={photo.signedUrl || ""}
+                                type={photo.contentType || undefined}
                               />
                             </video>
-                          ) : (
+                          ) : photo.thumbnailUrl ? (
                             <Image
-                              src={photo.signedUrl}
+                              src={photo.thumbnailUrl!}
                               alt={photo.filename}
                               fill
                               className="object-cover"
                               sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 16vw"
                             />
-                          )}
+                          ) : null}
                           {!selectMode ? (
                             <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/20 transition-opacity">
                               <Fullscreen className="h-5 w-5 text-white drop-shadow" />

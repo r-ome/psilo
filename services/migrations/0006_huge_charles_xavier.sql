@@ -1,0 +1,1 @@
+CREATE INDEX "idx_photos_user_id" ON "photos" USING btree ("user_id");

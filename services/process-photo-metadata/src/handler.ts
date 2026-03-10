@@ -3,12 +3,15 @@ import {
   S3Client,
   GetObjectCommand,
   HeadObjectCommand,
+  PutObjectCommand,
+  PutObjectTaggingCommand,
 } from "@aws-sdk/client-s3";
 import { eq } from "drizzle-orm";
 import sharp from "sharp";
 import exifReader from "exif-reader";
 import { createDb } from "../../shared/db";
 import { photos } from "../../shared/schema";
+import { randomUUID } from "crypto";
 
 const s3 = new S3Client({});
 
@@ -69,6 +72,15 @@ function extractTakenAt(
   return extractTakenAtFromFilename(filename);
 }
 
+async function generatePhotoThumbnail(buffer: Buffer): Promise<Buffer> {
+  return sharp(buffer)
+    .rotate()
+    .resize(800, 800, { fit: "inside", withoutEnlargement: true })
+    .toColorspace("srgb")
+    .jpeg({ quality: 80 })
+    .toBuffer();
+}
+
 export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
   const db = createDb();
   const batchItemFailures: { itemIdentifier: string }[] = [];
@@ -84,14 +96,19 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
       // Skip folder marker objects
       if (key.endsWith("/")) continue;
 
-      // Parse userId from key: users/{givenName}-{familyName}-{uuid}/{filename}
+      // Parse key: users/{userFolder}/{subFolder}/{filename}
       const parts = key.split("/");
-      if (parts.length < 3 || parts[0] !== "users") {
+      if (parts.length < 4 || parts[0] !== "users") {
         console.log(`Skipping unexpected key format: ${key}`);
         continue;
       }
+
+      // Skip thumbnails (prevent infinite loop)
+      const subFolder = parts[2];
+      if (subFolder === "thumbnails") continue;
+
       const userId = parts[1].slice(-36); // UUID is always the last 36 chars
-      const filename = parts.slice(2).join("/");
+      const filename = parts.slice(3).join("/"); // Skip users, userFolder, subFolder
 
       console.log(`Processing: ${key} for user: ${userId}`);
 
@@ -114,6 +131,7 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
       let height: number | null = null;
       let format: string | null = null;
       let takenAt: Date | null = null;
+      let thumbnailKey: string | null = null;
 
       if (!contentType?.startsWith("video/")) {
         const response = await s3.send(
@@ -123,15 +141,46 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
         for await (const chunk of response.Body as AsyncIterable<Uint8Array>) {
           chunks.push(chunk);
         }
-        const metadata = await sharp(Buffer.concat(chunks)).metadata();
+        const rawBuffer = Buffer.concat(chunks);
+
+        const metadata = await sharp(rawBuffer).metadata();
         width = metadata.width ?? null;
         height = metadata.height ?? null;
         format = metadata.format ?? null;
         takenAt = extractTakenAt(metadata.exif as Buffer | undefined, filename);
+
+        // Generate photo thumbnail
+        const thumbnailBuffer = await generatePhotoThumbnail(rawBuffer);
+        const thumbnailPath = key
+          .replace(/\/(photos|videos)\//, "/thumbnails/")
+          .replace(/\.[^.]+$/, ".jpg");
+
+        await s3.send(
+          new PutObjectCommand({
+            Bucket: bucket,
+            Key: thumbnailPath,
+            Body: thumbnailBuffer,
+            ContentType: "image/jpeg",
+            StorageClass: "STANDARD",
+          }),
+        );
+        thumbnailKey = thumbnailPath;
       }
+      // Note: Video thumbnails skipped for now (requires ffmpeg layer or external service)
 
       takenAt =
-        extractTakenAt(undefined, filename) ?? head.LastModified ?? null;
+        takenAt ?? extractTakenAtFromFilename(filename) ?? head.LastModified ?? null;
+
+      // Tag original with media-type=original
+      await s3.send(
+        new PutObjectTaggingCommand({
+          Bucket: bucket,
+          Key: key,
+          Tagging: {
+            TagSet: [{ Key: "media-type", Value: "original" }],
+          },
+        }),
+      );
 
       await db
         .update(photos)
@@ -142,6 +191,7 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
           format,
           contentType,
           takenAt,
+          thumbnailKey,
         })
         .where(eq(photos.s3Key, key));
 

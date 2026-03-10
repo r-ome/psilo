@@ -7,7 +7,8 @@ import {
 
 const s3Mock = mockClient(S3Client);
 
-const mockOrderBy = jest.fn().mockResolvedValue([]);
+const mockLimit = jest.fn().mockResolvedValue([]);
+const mockOrderBy = jest.fn(() => ({ limit: mockLimit }));
 const mockSelectWhere = jest.fn(() => ({ orderBy: mockOrderBy }));
 const mockReturning = jest.fn().mockResolvedValue([]);
 const mockUpdateWhere = jest.fn(() => ({ returning: mockReturning }));
@@ -31,11 +32,14 @@ jest.mock('drizzle-orm', () => ({
   eq: jest.fn((col, val) => ({ col, val })),
   and: jest.fn((...args) => ({ and: args })),
   desc: jest.fn((col) => ({ desc: col })),
+  or: jest.fn((...args) => ({ or: args })),
+  lt: jest.fn((col, val) => ({ col, val })),
   sql: jest.fn((strings, ...values) => ({ sql: strings, values })),
 }));
 
+const mockGetSignedUrl = jest.fn();
 jest.mock('@aws-sdk/s3-request-presigner', () => ({
-  getSignedUrl: jest.fn().mockResolvedValue('https://s3.example.com/signed-url'),
+  getSignedUrl: mockGetSignedUrl,
 }));
 
 function makeEvent(
@@ -65,7 +69,8 @@ async function callHandler(event: APIGatewayProxyEventV2WithJWTAuthorizer) {
 
 beforeEach(() => {
   s3Mock.reset();
-  mockOrderBy.mockReset().mockResolvedValue([]);
+  mockLimit.mockReset().mockResolvedValue([]);
+  mockOrderBy.mockReset().mockImplementation(() => ({ limit: mockLimit }));
   mockDeleteWhere.mockReset().mockResolvedValue([]);
   mockReturning.mockReset().mockResolvedValue([]);
   mockSelect.mockClear();
@@ -74,21 +79,76 @@ beforeEach(() => {
   mockSet.mockClear();
   mockSelectWhere.mockClear();
   mockUpdateWhere.mockClear();
+  mockGetSignedUrl.mockReset().mockResolvedValue('https://s3.example.com/signed-url');
 });
 
 describe('manage-photos handler', () => {
   describe('GET /photos', () => {
-    it('returns list of photos with signedUrl for the user', async () => {
-      const photos = [{ id: 'p1', userId: 'u1', s3Key: 'users/u1/photo.jpg' }];
-      mockOrderBy.mockResolvedValueOnce(photos);
+    it('returns paginated photos with only thumbnailUrl for the user', async () => {
+      const photos = [{ id: 'p1', userId: 'u1', s3Key: 'users/u1/photos/photo.jpg', thumbnailKey: 'users/u1/thumbnails/photo.jpg', takenAt: null, createdAt: new Date().toISOString(), contentType: 'image/jpeg' }];
+      mockLimit.mockResolvedValueOnce(photos);
 
       const result = await callHandler(makeEvent('GET', 'GET /photos', 'u1'));
 
       expect(result.statusCode).toBe(200);
-      expect(JSON.parse(result.body as string)).toEqual([
-        { ...photos[0], signedUrl: 'https://s3.example.com/signed-url' },
-      ]);
+      const body = JSON.parse(result.body as string);
+      expect(body).toEqual({
+        photos: [
+          { ...photos[0], thumbnailUrl: 'https://s3.example.com/signed-url' },
+        ],
+        nextCursor: null,
+      });
       expect(mockSelect).toHaveBeenCalledTimes(1);
+      expect(mockGetSignedUrl).toHaveBeenCalledTimes(1); // only for thumbnailKey
+    });
+
+    it('returns nextCursor when more rows exist', async () => {
+      const photos = Array.from({ length: 31 }, (_, i) => ({
+        id: `p${i}`,
+        userId: 'u1',
+        s3Key: `users/u1/photos/photo${i}.jpg`,
+        thumbnailKey: `users/u1/thumbnails/photo${i}.jpg`,
+        takenAt: null,
+        createdAt: new Date(Date.now() - i * 1000).toISOString(),
+      }));
+      mockLimit.mockResolvedValueOnce(photos);
+
+      const result = await callHandler(makeEvent('GET', 'GET /photos', 'u1'));
+
+      expect(result.statusCode).toBe(200);
+      const body = JSON.parse(result.body as string);
+      expect(body.photos.length).toBeGreaterThan(0);
+      expect(body.nextCursor).toBeTruthy();
+
+      // Verify cursor can be decoded
+      const decodedCursor = JSON.parse(Buffer.from(body.nextCursor, 'base64').toString('utf-8'));
+      expect(decodedCursor.sortDate).toBeTruthy();
+      expect(decodedCursor.id).toBeTruthy();
+    });
+
+    it('returns thumbnailUrl as null for photos without thumbnail', async () => {
+      const photos = [{ id: 'p1', userId: 'u1', s3Key: 'users/u1/photos/photo.jpg', thumbnailKey: null, takenAt: null, createdAt: new Date().toISOString(), contentType: 'image/jpeg' }];
+      mockLimit.mockResolvedValueOnce(photos);
+
+      const result = await callHandler(makeEvent('GET', 'GET /photos', 'u1'));
+
+      expect(result.statusCode).toBe(200);
+      const body = JSON.parse(result.body as string);
+      expect(body.photos[0].thumbnailUrl).toBeNull();
+      expect(mockGetSignedUrl).not.toHaveBeenCalled(); // no signed URL needed
+    });
+
+    it('returns signedUrl for videos (actual object, no thumbnails yet)', async () => {
+      const photos = [{ id: 'v1', userId: 'u1', s3Key: 'users/u1/videos/video.mp4', thumbnailKey: null, takenAt: null, createdAt: new Date().toISOString(), contentType: 'video/mp4' }];
+      mockLimit.mockResolvedValueOnce(photos);
+
+      const result = await callHandler(makeEvent('GET', 'GET /photos', 'u1'));
+
+      expect(result.statusCode).toBe(200);
+      const body = JSON.parse(result.body as string);
+      expect(body.photos[0].signedUrl).toBe('https://s3.example.com/signed-url'); // signed URL for actual video
+      expect(body.photos[0].thumbnailUrl).toBeNull(); // no thumbnail for videos
+      expect(mockGetSignedUrl).toHaveBeenCalledTimes(1); // once for video s3Key
     });
   });
 
@@ -98,7 +158,7 @@ describe('manage-photos handler', () => {
 
       // sub is 'u1' padded to simulate a 36-char UUID as the last part of the segment
       const sub = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
-      const key = `users/John-Doe-${sub}/photo.jpg`;
+      const key = `users/John-Doe-${sub}/photos/photo.jpg`;
 
       const result = await callHandler(
         makeEvent('DELETE', 'DELETE /photos/{key+}', sub, { key }),
@@ -116,7 +176,7 @@ describe('manage-photos handler', () => {
       const result = await callHandler(
         makeEvent('DELETE', 'DELETE /photos/{key+}', 'u1', {
           // Last 36 chars of userSegment = 'other-user-000000000000000000000000'
-          key: 'users/John-Doe-000000000000000000000000000000000000/photo.jpg',
+          key: 'users/John-Doe-000000000000000000000000000000000000/photos/photo.jpg',
         }),
       );
 
@@ -135,7 +195,7 @@ describe('manage-photos handler', () => {
 
   describe('PATCH /photos/{key+}', () => {
     const sub = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
-    const key = `users/John-Doe-${sub}/photo.jpg`;
+    const key = `users/John-Doe-${sub}/photos/photo.jpg`;
 
     it('updates takenAt for the photo', async () => {
       const updatedPhoto = { id: 'p1', s3Key: key, takenAt: '2024-01-01T00:00:00.000Z' };
@@ -153,7 +213,7 @@ describe('manage-photos handler', () => {
     it('returns 403 when key does not belong to user', async () => {
       const result = await callHandler(
         makeEvent('PATCH', 'PATCH /photos/{key+}', 'u1', {
-          key: 'users/John-Doe-000000000000000000000000000000000000/photo.jpg',
+          key: 'users/John-Doe-000000000000000000000000000000000000/photos/photo.jpg',
         }, { takenAt: null }),
       );
 
