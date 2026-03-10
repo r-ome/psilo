@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { Trash2 } from "lucide-react";
 import { Card, CardContent } from "@/app/components/ui/card";
 import { Button } from "@/app/components/ui/button";
 import { Input } from "@/app/components/ui/input";
@@ -12,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/app/components/ui/dialog";
+import DeleteConfirmDialog from "@/app/(protected)/components/DeleteConfirmDialog";
 import { albumService, Album } from "@/app/lib/services/album.service";
 import { formatDate } from "@/app/lib/utils";
 
@@ -20,6 +22,7 @@ export default function AlbumsPage() {
   const [newAlbumName, setNewAlbumName] = useState("");
   const [creating, setCreating] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [albumToDelete, setAlbumToDelete] = useState<Album | null>(null);
 
   useEffect(() => {
     albumService
@@ -39,6 +42,13 @@ export default function AlbumsPage() {
     } finally {
       setCreating(false);
     }
+  };
+
+  const handleDeleteAlbum = async () => {
+    if (!albumToDelete) return;
+    await albumService.deleteAlbum(albumToDelete.id);
+    setAlbums((prev) => prev.filter((a) => a.id !== albumToDelete.id));
+    setAlbumToDelete(null);
   };
 
   return (
@@ -80,6 +90,16 @@ export default function AlbumsPage() {
               <Link key={album.id} href={`/albums/${album.id}`}>
                 <Card className="hover:bg-muted/50 transition-colors cursor-pointer overflow-hidden pt-0 gap-0 hover:shadow-lg">
                   <div className="relative w-full aspect-square bg-muted flex items-center justify-center">
+                    <button
+                      className="absolute top-2 left-2 z-10 p-1.5 rounded-full bg-background/80 hover:bg-destructive hover:text-white transition-colors"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setAlbumToDelete(album);
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
                     {album.coverUrl ? (
                       <Image
                         src={album.coverUrl}
@@ -126,6 +146,15 @@ export default function AlbumsPage() {
           </div>
         )}
       </div>
+
+      {albumToDelete && (
+        <DeleteConfirmDialog
+          customTitle="Delete album?"
+          customDescription={`"${albumToDelete.name}" will be deleted. Photos inside will not be affected.`}
+          onConfirm={handleDeleteAlbum}
+          onCancel={() => setAlbumToDelete(null)}
+        />
+      )}
     </div>
   );
 }

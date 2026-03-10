@@ -22,6 +22,7 @@ import DeleteConfirmDialog from "@/app/(protected)/components/DeleteConfirmDialo
 import UpdateTakenAtDialog from "@/app/(protected)/components/UpdateTakenAtDialog";
 import ImageViewer from "@/app/(protected)/components/ImageViewer";
 import { photoService, Photo } from "@/app/lib/services/photo.service";
+import { useLoadMore } from "@/app/lib/hooks/useLoadMore";
 
 export default function Page() {
   const [photos, setPhotos] = useState<Photo[]>([]);
@@ -35,7 +36,6 @@ export default function Page() {
   const [bulkUpdatePending, setBulkUpdatePending] = useState(false);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
-  const sentinelRef = useRef<HTMLDivElement>(null);
 
   const totalSizeMB = useMemo(() => {
     const bytes = photos.reduce((sum, p) => sum + (p.size ?? 0), 0);
@@ -75,20 +75,11 @@ export default function Page() {
       .finally(() => setIsLoadingMore(false));
   }, [nextCursor]);
 
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && nextCursor && !isLoadingMore) {
-          loadMore();
-        }
-      },
-      { threshold: 0.1 },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [nextCursor, isLoadingMore, loadMore]);
+  const sentinelRef = useLoadMore({
+    nextCursor,
+    isLoadingMore,
+    onLoadMore: loadMore,
+  });
 
   useEffect(() => {
     photoService

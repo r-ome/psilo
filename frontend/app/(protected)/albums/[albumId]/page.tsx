@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { use } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
@@ -21,6 +21,7 @@ import { photoService, Photo } from "@/app/lib/services/photo.service";
 import PhotoGrid from "@/app/(protected)/components/PhotoGrid";
 import DeleteConfirmDialog from "@/app/(protected)/components/DeleteConfirmDialog";
 import ImageViewer from "@/app/(protected)/components/ImageViewer";
+import { useLoadMore } from "@/app/lib/hooks/useLoadMore";
 
 export default function AlbumDetailPage({
   params,
@@ -41,6 +42,9 @@ export default function AlbumDetailPage({
   const [bulkRemovePending, setBulkRemovePending] = useState(false);
   const [albumDeletePending, setAlbumDeletePending] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
+  const [pickerNextCursor, setPickerNextCursor] = useState<string | null>(null);
+  const [isLoadingMorePicker, setIsLoadingMorePicker] = useState(false);
+  const pickerScrollContainerRef = useRef<HTMLDivElement>(null);
 
   const loadAlbum = useCallback(async () => {
     try {
@@ -58,9 +62,25 @@ export default function AlbumDetailPage({
       .catch(() => {});
     photoService
       .listPhotos()
-      .then((data) => setAllPhotos(data.photos))
+      .then((data) => {
+        setAllPhotos(data.photos);
+        setPickerNextCursor(data.nextCursor);
+      })
       .catch(() => {});
   }, [albumId]);
+
+  const loadMorePhotosForPicker = useCallback(() => {
+    if (!pickerNextCursor) return;
+    setIsLoadingMorePicker(true);
+    photoService
+      .listPhotos(pickerNextCursor)
+      .then((data) => {
+        setAllPhotos((prev) => [...prev, ...data.photos]);
+        setPickerNextCursor(data.nextCursor);
+      })
+      .catch(() => {})
+      .finally(() => setIsLoadingMorePicker(false));
+  }, [pickerNextCursor]);
 
   useEffect(() => {
     const albumHasInProgress = album?.photos.some(
@@ -176,6 +196,14 @@ export default function AlbumDetailPage({
     (p) => !albumPhotoIds.has(p.id) && p.status === "completed",
   );
 
+  const pickerSentinelRef = useLoadMore({
+    nextCursor: pickerNextCursor,
+    isLoadingMore: isLoadingMorePicker,
+    onLoadMore: loadMorePhotosForPicker,
+    scrollContainerRef: pickerScrollContainerRef,
+    isOpen: showPicker,
+  });
+
   if (!album)
     return <p className="text-sm text-muted-foreground">Loading...</p>;
 
@@ -232,19 +260,25 @@ export default function AlbumDetailPage({
           if (!open) {
             setShowPicker(false);
             setPickerSelectedIds(new Set());
+            setPickerNextCursor(null);
+            setIsLoadingMorePicker(false);
           }
         }}
       >
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col overflow-hidden">
           <DialogHeader>
             <DialogTitle>Add Photos to {album.name}</DialogTitle>
           </DialogHeader>
-          {availablePhotos.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-4">
-              No photos available to add.
-            </p>
-          ) : (
-            <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 max-h-[60vh] overflow-y-auto py-2">
+          <div className="flex-1 overflow-hidden flex flex-col">
+            {availablePhotos.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4">
+                No photos available to add.
+              </p>
+            ) : (
+              <div
+                ref={pickerScrollContainerRef}
+                className="grid grid-cols-3 sm:grid-cols-4 gap-3 overflow-y-auto py-2 flex-1"
+              >
               {availablePhotos.map((photo) => {
                 const selected = pickerSelectedIds.has(photo.id);
                 return (
@@ -270,8 +304,15 @@ export default function AlbumDetailPage({
                   </button>
                 );
               })}
-            </div>
-          )}
+                <div ref={pickerSentinelRef} className="h-4" />
+              </div>
+            )}
+            {isLoadingMorePicker && (
+              <div className="flex justify-center text-sm text-muted-foreground py-2">
+                Loading...
+              </div>
+            )}
+          </div>
           <DialogFooter>
             <Button
               variant="outline"
