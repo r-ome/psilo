@@ -43,6 +43,15 @@ function extractTakenAtFromFilename(filename: string): Date | null {
     const d = new Date(`${yr}-${mo}-${dy}T${hr}:${mn}:${sc}`);
     if (!isNaN(d.getTime()) && d.getFullYear() >= 2000) return d;
   }
+  // DD-MM-YYYY format: rome.avenue-11-08-2025-0001.jpg
+  const ddMmYyyy = filename.match(
+    /(0[1-9]|[12]\d|3[01])-(0[1-9]|1[0-2])-(\d{4})/,
+  );
+  if (ddMmYyyy) {
+    const [, dy, mo, yr] = ddMmYyyy;
+    const d = new Date(`${yr}-${mo}-${dy}`);
+    if (!isNaN(d.getTime()) && d.getFullYear() >= 2000) return d;
+  }
   // WhatsApp / date-only: IMG-20231215-WA0001.jpg
   const dateOnly = filename.match(
     /(\d{4})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])/,
