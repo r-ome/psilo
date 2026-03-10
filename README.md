@@ -6,6 +6,7 @@
 - [Tech Stack](#tech-stack)
 - [AWS Architecture](#aws-architecture)
 - [Key Decisions](#key-decisions)
+- [Status](#status)
 
 # Summary
 
@@ -29,18 +30,26 @@ and full-stack TypeScript. Integrated with Claude Code for AI-assisted developme
   - Core services include:
     - Cognito - authentication
     - API Gateway + Lambda - request handling and business logic
-    - S3 - object storage
-    - SQS - for metadata processing
-    - Aurora Serverless v2 - stores users and photo metadata
+    - S3 - object storage with lifecycle rules (originals transition to Glacier)
+    - SQS + DLQ - for async metadata processing and thumbnail generation
+    - EventBridge - listens for S3 storage class transitions
+    - Aurora Serverless v2 - stores users, photo metadata, storage class state
 
 # Project Structure
 
 ```
-├── frontend/         # Next.js app
-├── infrastructure/   # AWS CDK stacks
-└── services/         # Lambda functions
-      ├── shared/     # RDS Schema
-      └── migrations/ # Migrations
+├── frontend/                      # Next.js app
+├── infrastructure/                # AWS CDK stacks
+└── services/                      # Lambda functions
+      ├── generate-presigned-url/  # Returns S3 presigned PUT URLs
+      ├── manage-photos/           # List, delete, storage stats
+      ├── manage-albums/           # CRUD albums
+      ├── user-provisioning/       # Post-Cognito confirmation setup
+      ├── process-photo-metadata/  # Thumbnail generation + EXIF extraction (SQS)
+      ├── lifecycle-transition/    # Tracks S3 Glacier transitions (EventBridge)
+      ├── handle-upload-dlq/       # Dead-letter queue handler
+      ├── shared/                  # Schema + DB client (bundled by esbuild)
+      └── migrations/              # Drizzle SQL migrations
 ```
 
 ### Frontend
@@ -75,18 +84,34 @@ User["User (Browser)"]
 FE["Frontend<br>Next.js"]
 APIGW["API Gateway"]
 Cognito["Cognito<br>Auth"]
-Lambda["Lambda Functions<br>(photos, albums, users)"]
-SQS["SQS<br>Upload Queue"]
-S3["S3 Glacier<br>Flexible Retrieval"]
+APILambda["API Lambdas<br>(manage-photos, manage-albums)"]
+PresignLambda["generate-presigned-url"]
+ProcessLambda["process-photo-metadata"]
+LifecycleLambda["lifecycle-transition"]
+DLQLambda["handle-upload-dlq"]
+SQS["SQS Upload Queue"]
+DLQ["Dead-Letter Queue"]
+S3["S3<br>(Standard + Glacier)"]
 Aurora["Aurora Serverless<br>Metadata"]
+EventBridge["EventBridge<br>S3 Events"]
+
 User --> FE
 FE --> Cognito
 FE --> APIGW
-APIGW --> Lambda
-Lambda --> SQS
-Lambda --> S3
-Lambda --> Aurora
-SQS --> Lambda
+APIGW --> APILambda
+APIGW --> PresignLambda
+PresignLambda --> S3
+APILambda --> S3
+APILambda --> Aurora
+S3 -->|ObjectCreated| SQS
+SQS --> ProcessLambda
+ProcessLambda --> S3
+ProcessLambda --> Aurora
+SQS -->|after 3 retries| DLQ
+DLQ --> DLQLambda
+S3 -->|StorageClassChanged| EventBridge
+EventBridge --> LifecycleLambda
+LifecycleLambda --> Aurora
 ```
 
 # Status
@@ -98,11 +123,16 @@ SQS --> Lambda
 - [x] File Upload
 - [x] File Retrieval
 - [x] Album Management
-- [ ] Storage usage dashboard
+- [x] Thumbnail generation (800×800 JPEG, served from Standard)
+- [x] S3 Glacier lifecycle for originals (cost optimization)
+- [x] Storage usage dashboard with per-class cost breakdown
+- [x] Infinite scroll on dashboard
+- [x] Bulk photo delete
+- [x] Video support (upload + grid playback)
 - [ ] Photo sorting and filtering
-- [ ] Image optimization
+- [ ] Full-resolution photo retrieval (Glacier restore flow)
 
-# Key Descisions
+# Key Decisions
 
 - **NextJS** - frontend tech stack. [ADR-001](documentation/ADRs/001-use-nextjs.md)
 - **Monorepo** - repository architecture. [ADR-002](documentation/ADRs/002-implement-monorepo.md)
@@ -113,3 +143,5 @@ SQS --> Lambda
 - **Backend for Frontends (BFF) Pattern** - design pattern for the App. [ADR-007](documentation/ADRs/007-using-bff-approach.md)
 - **SQS for async photo metadata processing** - decoupled background processing with DLQ. [ADR-008](documentation/ADRs/008-sqs-async-photo-processing.md)
 - **Aurora Data API (no VPC)** - Lambda-to-database connectivity without NAT gateways. [ADR-009](documentation/ADRs/009-aurora-data-api-no-vpc.md)
+- **Thumbnail generation pipeline** - fast grid loading while keeping originals in Glacier. [ADR-010](documentation/ADRs/010-thumbnail-generation-pipeline.md)
+- **EventBridge for storage class tracking** - sync Glacier transition state to DB without polling. [ADR-011](documentation/ADRs/011-eventbridge-storage-class-tracking.md)
