@@ -81,12 +81,16 @@ export default function ImageViewer({
                   key={photo.id}
                   className="flex items-center justify-center p-8 pl-8! h-full"
                 >
-                  {photo.contentType?.startsWith("video/") && photo.signedUrl ? (
+                  {photo.contentType?.startsWith("video/") &&
+                  photo.signedUrl ? (
                     <video
                       controls
                       className="max-h-[calc(90vh-5rem)] max-w-full w-auto mx-auto"
                     >
-                      <source src={photo.signedUrl} type={photo.contentType || undefined} />
+                      <source
+                        src={photo.signedUrl}
+                        type={photo.contentType || undefined}
+                      />
                     </video>
                   ) : photo.thumbnailUrl ? (
                     <Image

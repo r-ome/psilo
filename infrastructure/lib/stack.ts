@@ -11,6 +11,8 @@ import * as apigatewayv2 from "aws-cdk-lib/aws-apigatewayv2";
 import * as apigatewayv2Integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import * as apigatewayv2Authorizers from "aws-cdk-lib/aws-apigatewayv2-authorizers";
 import * as iam from "aws-cdk-lib/aws-iam";
+import * as events from "aws-cdk-lib/aws-events";
+import * as targets from "aws-cdk-lib/aws-events-targets";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { SqsEventSource } from "aws-cdk-lib/aws-lambda-event-sources";
 import * as path from "path";
@@ -26,6 +28,7 @@ export class PsiloStack extends cdk.Stack {
       versioned: true,
       encryption: s3.BucketEncryption.S3_MANAGED,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      eventBridgeEnabled: true,
       removalPolicy: isProd
         ? cdk.RemovalPolicy.RETAIN
         : cdk.RemovalPolicy.DESTROY,
@@ -251,6 +254,32 @@ export class PsiloStack extends cdk.Stack {
       }),
     );
 
+    const lifecycleTransitionFn = new NodejsFunction(this, "LifecycleTransitionFn", {
+      entry: path.join(
+        __dirname,
+        "../../services/lifecycle-transition/src/handler.ts",
+      ),
+      handler: "handler",
+      runtime: lambda.Runtime.NODEJS_22_X,
+      environment: { ...dbEnv },
+      timeout: cdk.Duration.seconds(30),
+      bundling: { esbuildVersion: "0.21" },
+    });
+
+    dbCluster.grantDataApiAccess(lifecycleTransitionFn);
+    dbSecret.grantRead(lifecycleTransitionFn);
+
+    const s3TransitionRule = new events.Rule(this, "S3StorageClassChangedRule", {
+      eventPattern: {
+        source: ["aws.s3"],
+        detailType: ["Object Storage Class Changed"],
+        detail: {
+          bucket: { name: [userBucket.bucketName] },
+        },
+      },
+    });
+    s3TransitionRule.addTarget(new targets.LambdaFunction(lifecycleTransitionFn));
+
     const managePhotosFn = new NodejsFunction(this, "ManagePhotosFn", {
       entry: path.join(
         __dirname,
@@ -333,6 +362,13 @@ export class PsiloStack extends cdk.Stack {
 
     httpApi.addRoutes({
       path: "/photos",
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: managePhotosIntegration,
+      authorizer: cognitoAuthorizer,
+    });
+
+    httpApi.addRoutes({
+      path: "/photos/storage-size",
       methods: [apigatewayv2.HttpMethod.GET],
       integration: managePhotosIntegration,
       authorizer: cognitoAuthorizer,

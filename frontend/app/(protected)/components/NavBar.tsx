@@ -40,6 +40,14 @@ export const NavBar = () => {
 
             <NavigationMenuItem>
               <NavigationMenuLink asChild>
+                <Link href="/storage">
+                  <Button variant="link">Storage</Button>
+                </Link>
+              </NavigationMenuLink>
+            </NavigationMenuItem>
+
+            <NavigationMenuItem>
+              <NavigationMenuLink asChild>
                 <Button variant="link" onClick={logout}>
                   Logout
                 </Button>

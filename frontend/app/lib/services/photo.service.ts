@@ -28,6 +28,12 @@ export interface PaginatedPhotos {
   nextCursor: string | null;
 }
 
+export interface StorageSize {
+  standardSize: number; // bytes
+  glacierSize: number; // bytes
+  standardCount: number; // number of standard files
+}
+
 export const photoService = {
   listPhotos: (cursor?: string) => {
     const params = new URLSearchParams();
@@ -40,4 +46,6 @@ export const photoService = {
     ),
   updatePhotoTakenAt: (key: string, takenAt: string | null) =>
     api.patch<Photo>(`/api/photos?key=${encodeURIComponent(key)}`, { takenAt }),
+  getStorageSize: (): Promise<StorageSize> =>
+    api.get<StorageSize>("/api/photos/storage-size"),
 };

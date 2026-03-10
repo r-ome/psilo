@@ -32,6 +32,29 @@ export const handler = async (
   const db = createDb();
 
   if (method === "GET") {
+    if (event.rawPath?.endsWith("/storage-size")) {
+      const result = await db
+        .select({
+          storageClass: photos.storageClass,
+          totalSize: sql<number>`COALESCE(SUM(${photos.size}), 0)`,
+          count: sql<number>`COUNT(*)`,
+        })
+        .from(photos)
+        .where(eq(photos.userId, sub))
+        .groupBy(photos.storageClass);
+
+      let standardSize = 0, glacierSize = 0, standardCount = 0;
+      for (const row of result) {
+        if (row.storageClass === "STANDARD") {
+          standardSize = Number(row.totalSize);
+          standardCount = Number(row.count);
+        } else if (row.storageClass === "GLACIER") {
+          glacierSize = Number(row.totalSize);
+        }
+      }
+      return respond(200, { standardSize, glacierSize, standardCount });
+    }
+
     const cursor = event.queryStringParameters?.cursor;
     const limit =
       Math.min(parseInt(event.queryStringParameters?.limit ?? "10"), 100) || 30;

@@ -1,0 +1,1 @@
+ALTER TABLE "photos" ADD COLUMN "storage_class" varchar(20) DEFAULT 'STANDARD' NOT NULL;
