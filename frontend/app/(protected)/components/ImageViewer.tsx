@@ -13,10 +13,17 @@ import {
   CarouselPrevious,
   type CarouselApi,
 } from "@/app/components/ui/carousel";
-import { PlusCircle } from "lucide-react";
+import { MoreHorizontal, PlusCircle, Download } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/app/components/ui/dropdown-menu";
 import { Photo } from "@/app/lib/services/photo.service";
 import { Album } from "@/app/lib/services/album.service";
 import AddToAlbumModal from "./AddToAlbumModal";
+import DownloadModal from "./DownloadModal";
 
 interface ImageViewerProps {
   photos: Photo[];
@@ -35,6 +42,7 @@ export default function ImageViewer({
   const [currentIndex, setCurrentIndex] = useState(initialIndex ?? 0);
   const [prevInitialIndex, setPrevInitialIndex] = useState(initialIndex);
   const [isAddToAlbumOpen, setIsAddToAlbumOpen] = useState(false);
+  const [isDownloadOpen, setIsDownloadOpen] = useState(false);
 
   if (prevInitialIndex !== initialIndex && initialIndex !== null) {
     setPrevInitialIndex(initialIndex);
@@ -142,24 +150,39 @@ export default function ImageViewer({
               )}
             </div>
           )}
-          {currentAlbum ? (
-            <Link
-              href={`/albums/${currentAlbum.id}`}
-              className="text-white/70 hover:text-white transition-colors underline"
-            >
-              {currentAlbum.name}
-            </Link>
-          ) : (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setIsAddToAlbumOpen(true)}
-              className="text-white/70 hover:text-white hover:bg-white/10"
-            >
-              <PlusCircle className="h-4 w-4 mr-1" />
-              Add to Album
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            {currentAlbum && (
+              <Link
+                href={`/albums/${currentAlbum.id}`}
+                className="text-white/70 hover:text-white transition-colors underline"
+              >
+                {currentAlbum.name}
+              </Link>
+            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-white/70 hover:text-white hover:bg-white/10"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => setIsDownloadOpen(true)}>
+                  <Download className="h-4 w-4 mr-2" />
+                  Download
+                </DropdownMenuItem>
+                {!currentAlbum && (
+                  <DropdownMenuItem onClick={() => setIsAddToAlbumOpen(true)}>
+                    <PlusCircle className="h-4 w-4 mr-2" />
+                    Add to Album
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
 
         <AddToAlbumModal
@@ -167,6 +190,13 @@ export default function ImageViewer({
           onClose={() => setIsAddToAlbumOpen(false)}
           photo={currentPhoto ?? null}
         />
+        {currentPhoto && (
+          <DownloadModal
+            isOpen={isDownloadOpen}
+            onClose={() => setIsDownloadOpen(false)}
+            photos={[currentPhoto]}
+          />
+        )}
       </DialogContent>
     </Dialog>
   );

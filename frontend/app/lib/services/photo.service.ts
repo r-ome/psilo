@@ -17,6 +17,7 @@ export interface Photo {
   format: string | null;
   contentType: string | null;
   status: "pending" | "processing" | "completed" | "failed";
+  storageClass: "STANDARD" | "GLACIER";
   createdAt: string | null;
   takenAt: string | null;
   thumbnailUrl: string | null;

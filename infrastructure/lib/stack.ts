@@ -290,14 +290,21 @@ export class PsiloStack extends cdk.Stack {
       new targets.LambdaFunction(lifecycleTransitionFn),
     );
 
-    const purgeDeletedPhotosFn = new NodejsFunction(this, "PurgeDeletedPhotosFn", {
-      entry: path.join(__dirname, "../../services/purge-deleted-photos/src/handler.ts"),
-      handler: "handler",
-      runtime: lambda.Runtime.NODEJS_22_X,
-      environment: { BUCKET_NAME: userBucket.bucketName, ...dbEnv },
-      timeout: cdk.Duration.minutes(5),
-      bundling: { esbuildVersion: "0.21" },
-    });
+    const purgeDeletedPhotosFn = new NodejsFunction(
+      this,
+      "PurgeDeletedPhotosFn",
+      {
+        entry: path.join(
+          __dirname,
+          "../../services/purge-deleted-photos/src/handler.ts",
+        ),
+        handler: "handler",
+        runtime: lambda.Runtime.NODEJS_22_X,
+        environment: { BUCKET_NAME: userBucket.bucketName, ...dbEnv },
+        timeout: cdk.Duration.minutes(5),
+        bundling: { esbuildVersion: "0.21" },
+      },
+    );
     userBucket.grantDelete(purgeDeletedPhotosFn);
     dbCluster.grantDataApiAccess(purgeDeletedPhotosFn);
     dbSecret.grantRead(purgeDeletedPhotosFn);
@@ -350,6 +357,78 @@ export class PsiloStack extends cdk.Stack {
     userBucket.grantRead(manageAlbumsFn);
     dbCluster.grantDataApiAccess(manageAlbumsFn);
     dbSecret.grantRead(manageAlbumsFn);
+
+    const requestRestoreFn = new NodejsFunction(this, "RequestRestoreFn", {
+      entry: path.join(
+        __dirname,
+        "../../services/request-restore/src/handler.ts",
+      ),
+      handler: "handler",
+      runtime: lambda.Runtime.NODEJS_22_X,
+      environment: { BUCKET_NAME: userBucket.bucketName, ...dbEnv },
+      timeout: cdk.Duration.seconds(29),
+      bundling: { esbuildVersion: "0.21" },
+    });
+    userBucket.grantRead(requestRestoreFn);
+    dbCluster.grantDataApiAccess(requestRestoreFn);
+    dbSecret.grantRead(requestRestoreFn);
+    requestRestoreFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["s3:RestoreObject"],
+        resources: [`${userBucket.bucketArn}/users/*`],
+      }),
+    );
+
+    const handleRestoreCompletedFn = new NodejsFunction(
+      this,
+      "HandleRestoreCompletedFn",
+      {
+        entry: path.join(
+          __dirname,
+          "../../services/handle-restore-completed/src/handler.ts",
+        ),
+        handler: "handler",
+        runtime: lambda.Runtime.NODEJS_22_X,
+        environment: {
+          BUCKET_NAME: userBucket.bucketName,
+          SES_FROM_EMAIL: "jerome.arceo.agapay@gmail.com",
+          USER_POOL_ID: userPool.userPoolId,
+          ...dbEnv,
+        },
+        timeout: cdk.Duration.seconds(30),
+        bundling: { esbuildVersion: "0.21" },
+      },
+    );
+    userBucket.grantRead(handleRestoreCompletedFn);
+    dbCluster.grantDataApiAccess(handleRestoreCompletedFn);
+    dbSecret.grantRead(handleRestoreCompletedFn);
+    handleRestoreCompletedFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["ses:SendEmail"],
+        resources: ["*"],
+      }),
+    );
+    handleRestoreCompletedFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["cognito-idp:AdminGetUser"],
+        resources: [userPool.userPoolArn],
+      }),
+    );
+
+    const s3RestoreCompletedRule = new events.Rule(
+      this,
+      "S3RestoreCompletedRule",
+      {
+        eventPattern: {
+          source: ["aws.s3"],
+          detailType: ["Object Restore Completed"],
+          detail: { bucket: { name: [userBucket.bucketName] } },
+        },
+      },
+    );
+    s3RestoreCompletedRule.addTarget(
+      new targets.LambdaFunction(handleRestoreCompletedFn),
+    );
 
     const httpApi = new apigatewayv2.HttpApi(this, "HttpApi", {
       corsPreflight: {
@@ -440,6 +519,16 @@ export class PsiloStack extends cdk.Stack {
       path: "/albums/{albumId}/photos/{photoId}",
       methods: [apigatewayv2.HttpMethod.DELETE],
       integration: manageAlbumsIntegration,
+      authorizer: cognitoAuthorizer,
+    });
+
+    httpApi.addRoutes({
+      path: "/files/restore",
+      methods: [apigatewayv2.HttpMethod.POST],
+      integration: new apigatewayv2Integrations.HttpLambdaIntegration(
+        "RequestRestoreIntegration",
+        requestRestoreFn,
+      ),
       authorizer: cognitoAuthorizer,
     });
 

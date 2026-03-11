@@ -11,6 +11,7 @@ import {
 import { Button } from "@/app/components/ui/button";
 import {
   CalendarDays,
+  Download,
   Trash2,
   Upload,
   CheckSquare,
@@ -21,6 +22,7 @@ import PhotoGrid from "@/app/(protected)/components/PhotoGrid";
 import DeleteConfirmDialog from "@/app/(protected)/components/DeleteConfirmDialog";
 import UpdateTakenAtDialog from "@/app/(protected)/components/UpdateTakenAtDialog";
 import ImageViewer from "@/app/(protected)/components/ImageViewer";
+import DownloadModal from "@/app/(protected)/components/DownloadModal";
 import { photoService, Photo } from "@/app/lib/services/photo.service";
 import { useLoadMore } from "@/app/lib/hooks/useLoadMore";
 
@@ -32,6 +34,7 @@ export default function Page() {
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeletePending, setBulkDeletePending] = useState(false);
+  const [downloadPending, setDownloadPending] = useState(false);
   const [photoToUpdate, setPhotoToUpdate] = useState<Photo | null>(null);
   const [bulkUpdatePending, setBulkUpdatePending] = useState(false);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
@@ -273,6 +276,14 @@ export default function Page() {
                   Update date
                 </Button>
                 <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setDownloadPending(true)}
+                >
+                  <Download className="h-4 w-4 mr-1" />
+                  Download
+                </Button>
+                <Button
                   variant="destructive"
                   size="sm"
                   onClick={() => setBulkDeletePending(true)}
@@ -333,6 +344,13 @@ export default function Page() {
         initialIndex={viewerIndex}
         onClose={() => setViewerIndex(null)}
       />
+      {downloadPending && (
+        <DownloadModal
+          isOpen={downloadPending}
+          onClose={() => setDownloadPending(false)}
+          photos={photos.filter((p) => selectedIds.has(p.id))}
+        />
+      )}
     </div>
   );
 }

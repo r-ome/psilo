@@ -12,7 +12,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/app/components/ui/dialog";
-import { Trash2, Plus, Check, CheckSquare, Square } from "lucide-react";
+import { Trash2, Plus, Check, CheckSquare, Square, Download } from "lucide-react";
 import {
   albumService,
   AlbumWithPhotos,
@@ -20,6 +20,7 @@ import {
 import { photoService, Photo } from "@/app/lib/services/photo.service";
 import PhotoGrid from "@/app/(protected)/components/PhotoGrid";
 import DeleteConfirmDialog from "@/app/(protected)/components/DeleteConfirmDialog";
+import DownloadModal from "@/app/(protected)/components/DownloadModal";
 import ImageViewer from "@/app/(protected)/components/ImageViewer";
 import { useLoadMore } from "@/app/lib/hooks/useLoadMore";
 
@@ -41,6 +42,7 @@ export default function AlbumDetailPage({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkRemovePending, setBulkRemovePending] = useState(false);
   const [albumDeletePending, setAlbumDeletePending] = useState(false);
+  const [albumDownloadOpen, setAlbumDownloadOpen] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
   const [pickerNextCursor, setPickerNextCursor] = useState<string | null>(null);
   const [isLoadingMorePicker, setIsLoadingMorePicker] = useState(false);
@@ -244,6 +246,16 @@ export default function AlbumDetailPage({
           </Button>
         </div>
         <div className="flex items-center gap-2">
+          {album.photos.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setAlbumDownloadOpen(true)}
+            >
+              <Download className="h-4 w-4 mr-1" />
+              Download Album
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -423,6 +435,11 @@ export default function AlbumDetailPage({
         initialIndex={viewerIndex}
         onClose={() => setViewerIndex(null)}
         currentAlbum={album}
+      />
+      <DownloadModal
+        isOpen={albumDownloadOpen}
+        onClose={() => setAlbumDownloadOpen(false)}
+        photos={album.photos}
       />
     </div>
   );
