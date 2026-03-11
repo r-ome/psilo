@@ -7,7 +7,7 @@ import {
   GetObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { eq, desc, sql, and, or, lt, inArray, isNull } from "drizzle-orm";
+import { eq, desc, sql, and, or, lt, inArray, isNull, isNotNull } from "drizzle-orm";
 import { createDb } from "../../shared/db";
 import { photos } from "../../shared/schema";
 
@@ -82,6 +82,107 @@ export const handler = async (
       });
     }
 
+    if (event.rawPath?.endsWith("/trash")) {
+      const cursor = event.queryStringParameters?.cursor;
+      const limit =
+        Math.min(parseInt(event.queryStringParameters?.limit ?? "10"), 100) || 30;
+
+      let query = db.select().from(photos).where(and(eq(photos.userId, sub), isNotNull(photos.deletedAt)));
+
+      if (cursor) {
+        try {
+          const decoded = JSON.parse(
+            Buffer.from(cursor, "base64").toString("utf-8"),
+          );
+          const { sortDate, id: cursorId } = decoded;
+          query = db
+            .select()
+            .from(photos)
+            .where(
+              and(
+                eq(photos.userId, sub),
+                isNotNull(photos.deletedAt),
+                or(
+                  lt(
+                    sql`COALESCE(${photos.takenAt}, ${photos.createdAt})`,
+                    sql`${sortDate}::timestamp`,
+                  ),
+                  and(
+                    eq(
+                      sql`COALESCE(${photos.takenAt}, ${photos.createdAt})`,
+                      sql`${sortDate}::timestamp`,
+                    ),
+                    lt(photos.id, cursorId),
+                  ),
+                ),
+              ),
+            );
+        } catch {
+          return respond(400, { message: "Invalid cursor" });
+        }
+      }
+
+      const userPhotos = await query
+        .orderBy(
+          desc(sql`COALESCE(${photos.takenAt}, ${photos.createdAt})`),
+          desc(photos.id),
+        )
+        .limit(limit + 1);
+
+      const hasMore = userPhotos.length > limit;
+      const resultPhotos = hasMore ? userPhotos.slice(0, limit) : userPhotos;
+
+      const lastPhoto = resultPhotos[resultPhotos.length - 1];
+      const sortDate = lastPhoto?.takenAt || lastPhoto?.createdAt;
+      const sortDateStr =
+        typeof sortDate === "string" ? sortDate : sortDate?.toISOString();
+      const nextCursor =
+        hasMore && lastPhoto && sortDateStr
+          ? Buffer.from(
+              JSON.stringify({
+                sortDate: sortDateStr,
+                id: lastPhoto.id,
+              }),
+            ).toString("base64")
+          : null;
+
+      const photosWithUrls = await Promise.all(
+        resultPhotos.map(async (photo) => {
+          if (photo.contentType?.startsWith("video/")) {
+            // For videos, return signed URL of actual object (no thumbnails yet)
+            const signedUrl = await getSignedUrl(
+              s3,
+              new GetObjectCommand({ Bucket: BUCKET_NAME, Key: photo.s3Key }),
+              { expiresIn: 3600 },
+            );
+            return {
+              ...photo,
+              thumbnailUrl: null,
+              signedUrl,
+            };
+          } else {
+            // For photos, return only thumbnail URL
+            const thumbnailUrl = photo.thumbnailKey
+              ? await getSignedUrl(
+                  s3,
+                  new GetObjectCommand({
+                    Bucket: BUCKET_NAME,
+                    Key: photo.thumbnailKey,
+                  }),
+                  { expiresIn: 3600 },
+                )
+              : null;
+            return {
+              ...photo,
+              thumbnailUrl,
+            };
+          }
+        }),
+      );
+
+      return respond(200, { photos: photosWithUrls, nextCursor });
+    }
+
     const cursor = event.queryStringParameters?.cursor;
     const limit =
       Math.min(parseInt(event.queryStringParameters?.limit ?? "10"), 100) || 30;
@@ -132,7 +233,7 @@ export const handler = async (
     const resultPhotos = hasMore ? userPhotos.slice(0, limit) : userPhotos;
 
     const lastPhoto = resultPhotos[resultPhotos.length - 1];
-    const sortDate = lastPhoto.takenAt || lastPhoto.createdAt;
+    const sortDate = lastPhoto?.takenAt || lastPhoto?.createdAt;
     const sortDateStr =
       typeof sortDate === "string" ? sortDate : sortDate?.toISOString();
     const nextCursor =
@@ -287,6 +388,41 @@ export const handler = async (
       .returning();
 
     return respond(200, updated);
+  }
+
+  if (method === "POST") {
+    if (event.rawPath?.endsWith("/trash/restore")) {
+      let body: unknown;
+      try {
+        body = JSON.parse(event.body ?? "{}");
+      } catch {
+        return respond(400, { message: "Invalid JSON body" });
+      }
+      if (
+        body &&
+        typeof body === "object" &&
+        "keys" in body &&
+        Array.isArray((body as { keys: unknown }).keys)
+      ) {
+        const keys = (body as { keys: string[] }).keys;
+
+        // Ownership guard: all keys must belong to sub
+        for (const key of keys) {
+          const parts = key.split("/");
+          const userSegment = parts[1] ?? "";
+          const keyUserId = userSegment.slice(-36);
+          if (keyUserId !== sub) {
+            return respond(403, { message: "Forbidden" });
+          }
+        }
+
+        await db.update(photos).set({ deletedAt: null })
+          .where(and(inArray(photos.s3Key, keys), eq(photos.userId, sub)));
+
+        return respond(200, { message: "Photos restored" });
+      }
+    }
+    return respond(400, { message: "Invalid request" });
   }
 
   return respond(405, { message: "Method not allowed" });

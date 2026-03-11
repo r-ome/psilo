@@ -17,6 +17,8 @@ interface DeleteConfirmDialogProps {
   bulkCount?: number | null;
   customTitle?: string;
   customDescription?: string;
+  customActionLabel?: string;
+  isDangerous?: boolean;
   onConfirm: () => Promise<void>;
   onCancel: () => void;
 }
@@ -26,6 +28,8 @@ export default function DeleteConfirmDialog({
   bulkCount = null,
   customTitle,
   customDescription,
+  customActionLabel = "Delete",
+  isDangerous = true,
   onConfirm,
   onCancel,
 }: DeleteConfirmDialogProps) {
@@ -68,7 +72,7 @@ export default function DeleteConfirmDialog({
             Cancel
           </AlertDialogCancel>
           <AlertDialogAction
-            className="bg-destructive text-white hover:bg-destructive/90"
+            className={isDangerous ? "bg-destructive text-white hover:bg-destructive/90" : ""}
             onClick={(e) => {
               e.preventDefault();
               handleConfirm();
@@ -76,7 +80,7 @@ export default function DeleteConfirmDialog({
             disabled={isDeleting}
           >
             {isDeleting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            Delete
+            {customActionLabel}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

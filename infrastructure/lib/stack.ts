@@ -482,6 +482,20 @@ export class PsiloStack extends cdk.Stack {
     });
 
     httpApi.addRoutes({
+      path: "/photos/trash",
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: managePhotosIntegration,
+      authorizer: cognitoAuthorizer,
+    });
+
+    httpApi.addRoutes({
+      path: "/photos/trash/restore",
+      methods: [apigatewayv2.HttpMethod.POST],
+      integration: managePhotosIntegration,
+      authorizer: cognitoAuthorizer,
+    });
+
+    httpApi.addRoutes({
       path: "/photos/{key+}",
       methods: [apigatewayv2.HttpMethod.DELETE, apigatewayv2.HttpMethod.PATCH],
       integration: managePhotosIntegration,

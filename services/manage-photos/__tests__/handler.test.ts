@@ -37,6 +37,7 @@ jest.mock('drizzle-orm', () => ({
   sql: jest.fn((strings, ...values) => ({ sql: strings, values })),
   inArray: jest.fn((col, vals) => ({ inArray: { col, vals } })),
   isNull: jest.fn((col) => ({ isNull: col })),
+  isNotNull: jest.fn((col) => ({ isNotNull: col })),
 }));
 
 const mockGetSignedUrl = jest.fn();
@@ -50,6 +51,7 @@ function makeEvent(
   sub: string,
   pathParameters?: Record<string, string>,
   body?: unknown,
+  rawPath?: string,
 ): APIGatewayProxyEventV2WithJWTAuthorizer {
   return {
     requestContext: {
@@ -61,6 +63,7 @@ function makeEvent(
     },
     pathParameters,
     body: body !== undefined ? JSON.stringify(body) : undefined,
+    rawPath,
   } as unknown as APIGatewayProxyEventV2WithJWTAuthorizer;
 }
 
@@ -154,10 +157,61 @@ describe('manage-photos handler', () => {
     });
   });
 
+  describe('GET /photos/trash', () => {
+    it('returns paginated deleted photos with thumbnailUrl for the user', async () => {
+      const photos = [{ id: 'p1', userId: 'u1', s3Key: 'users/u1/photos/photo.jpg', thumbnailKey: 'users/u1/thumbnails/photo.jpg', takenAt: null, createdAt: new Date().toISOString(), contentType: 'image/jpeg', deletedAt: new Date().toISOString() }];
+      mockLimit.mockResolvedValueOnce(photos);
+
+      const result = await callHandler(makeEvent('GET', 'GET /photos/trash', 'u1', undefined, undefined, '/photos/trash'));
+
+      expect(result.statusCode).toBe(200);
+      const body = JSON.parse(result.body as string);
+      expect(body).toEqual({
+        photos: [
+          { ...photos[0], thumbnailUrl: 'https://s3.example.com/signed-url' },
+        ],
+        nextCursor: null,
+      });
+      expect(mockSelect).toHaveBeenCalledTimes(1);
+      expect(mockGetSignedUrl).toHaveBeenCalledTimes(1); // only for thumbnailKey
+    });
+
+    it('returns empty array when no deleted photos exist', async () => {
+      mockLimit.mockResolvedValueOnce([]);
+
+      const result = await callHandler(makeEvent('GET', 'GET /photos/trash', 'u1', undefined, undefined, '/photos/trash'));
+
+      expect(result.statusCode).toBe(200);
+      const body = JSON.parse(result.body as string);
+      expect(body.photos).toEqual([]);
+      expect(body.nextCursor).toBeNull();
+    });
+
+    it('returns nextCursor when more deleted photos exist', async () => {
+      const photos = Array.from({ length: 31 }, (_, i) => ({
+        id: `p${i}`,
+        userId: 'u1',
+        s3Key: `users/u1/photos/photo${i}.jpg`,
+        thumbnailKey: `users/u1/thumbnails/photo${i}.jpg`,
+        takenAt: null,
+        createdAt: new Date(Date.now() - i * 1000).toISOString(),
+        deletedAt: new Date().toISOString(),
+      }));
+      mockLimit.mockResolvedValueOnce(photos);
+
+      const result = await callHandler(makeEvent('GET', 'GET /photos/trash', 'u1', undefined, undefined, '/photos/trash'));
+
+      expect(result.statusCode).toBe(200);
+      const body = JSON.parse(result.body as string);
+      expect(body.photos.length).toBeGreaterThan(0);
+      expect(body.nextCursor).toBeTruthy();
+    });
+  });
+
   describe('DELETE /photos/{key+}', () => {
+    const sub = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+
     it('soft-deletes photo (sets deletedAt, no S3 deletion)', async () => {
-      // sub is 'u1' padded to simulate a 36-char UUID as the last part of the segment
-      const sub = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
       const key = `users/John-Doe-${sub}/photos/photo.jpg`;
 
       const result = await callHandler(
@@ -173,11 +227,40 @@ describe('manage-photos handler', () => {
       expect(mockDelete).not.toHaveBeenCalled();
     });
 
-    it('returns 403 when key does not belong to user', async () => {
+    it('soft-deletes multiple photos in bulk', async () => {
+      const keys = [
+        `users/John-Doe-${sub}/photos/photo1.jpg`,
+        `users/John-Doe-${sub}/photos/photo2.jpg`,
+      ];
+
       const result = await callHandler(
-        makeEvent('DELETE', 'DELETE /photos/{key+}', 'u1', {
-          key: 'users/John-Doe-000000000000000000000000000000000000/photos/photo.jpg',
-        }),
+        makeEvent('DELETE', 'DELETE /photos', sub, undefined, { keys }),
+      );
+
+      expect(result.statusCode).toBe(200);
+      expect(JSON.parse(result.body as string)).toEqual({ message: 'Photos deleted' });
+      expect(mockUpdate).toHaveBeenCalledWith('photos_table');
+      expect(mockSet).toHaveBeenCalledWith(expect.objectContaining({ deletedAt: expect.any(Date) }));
+    });
+
+    it('returns 403 when key does not belong to user', async () => {
+      const key = `users/John-Doe-000000000000000000000000000000000000/photos/photo.jpg`;
+      const result = await callHandler(
+        makeEvent('DELETE', 'DELETE /photos/{key+}', sub, { key }),
+      );
+
+      expect(result.statusCode).toBe(403);
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('returns 403 when any key in bulk delete does not belong to user', async () => {
+      const keys = [
+        `users/John-Doe-${sub}/photos/photo1.jpg`,
+        `users/John-Doe-000000000000000000000000000000000000/photos/photo2.jpg`,
+      ];
+
+      const result = await callHandler(
+        makeEvent('DELETE', 'DELETE /photos', sub, undefined, { keys }),
       );
 
       expect(result.statusCode).toBe(403);
@@ -186,7 +269,7 @@ describe('manage-photos handler', () => {
 
     it('returns 400 when key is missing', async () => {
       const result = await callHandler(
-        makeEvent('DELETE', 'DELETE /photos/{key+}', 'u1'),
+        makeEvent('DELETE', 'DELETE /photos/{key+}', sub),
       );
 
       expect(result.statusCode).toBe(400);
@@ -255,6 +338,49 @@ describe('manage-photos handler', () => {
       );
 
       expect(result.statusCode).toBe(403);
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('POST /photos/trash/restore', () => {
+    const sub = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+
+    it('restores deleted photos (sets deletedAt to null)', async () => {
+      const keys = [
+        `users/John-Doe-${sub}/photos/photo1.jpg`,
+        `users/John-Doe-${sub}/photos/photo2.jpg`,
+      ];
+
+      const result = await callHandler(
+        makeEvent('POST', 'POST /photos/trash/restore', sub, undefined, { keys }, '/photos/trash/restore'),
+      );
+
+      expect(result.statusCode).toBe(200);
+      expect(JSON.parse(result.body as string)).toEqual({ message: 'Photos restored' });
+      expect(mockUpdate).toHaveBeenCalledWith('photos_table');
+      expect(mockSet).toHaveBeenCalledWith(expect.objectContaining({ deletedAt: null }));
+    });
+
+    it('returns 403 when any key does not belong to user', async () => {
+      const keys = [
+        `users/John-Doe-${sub}/photos/photo1.jpg`,
+        `users/John-Doe-000000000000000000000000000000000000/photos/photo2.jpg`,
+      ];
+
+      const result = await callHandler(
+        makeEvent('POST', 'POST /photos/trash/restore', sub, undefined, { keys }, '/photos/trash/restore'),
+      );
+
+      expect(result.statusCode).toBe(403);
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 when body is invalid', async () => {
+      const result = await callHandler(
+        makeEvent('POST', 'POST /photos/trash/restore', sub, undefined, { invalid: true }, '/photos/trash/restore'),
+      );
+
+      expect(result.statusCode).toBe(400);
       expect(mockUpdate).not.toHaveBeenCalled();
     });
   });

@@ -18,7 +18,7 @@ interface PhotoGridProps {
   photos: Photo[];
   selectedIds: Set<string>;
   onToggleSelect: (photo: Photo) => void;
-  onDeleteRequest: (photo: Photo) => void;
+  onDeleteRequest?: (photo: Photo) => void;
   onPhotoClick: (index: number) => void;
   onRetry?: (photo: Photo) => void;
   onUpdateRequest?: (photo: Photo) => void;
@@ -64,7 +64,7 @@ export default function PhotoGrid({
             <div className="font-semibold">
               {formatDate(item.date, "E MMM d, yyyy")}
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-1">
               {item.photos.map((photo) => {
                 const isSelected = selectedIds.has(photo.id);
                 const isCompleted = photo.status === "completed";
@@ -77,7 +77,7 @@ export default function PhotoGrid({
                   <div
                     key={photo.id}
                     className={cn(
-                      "relative group border rounded-lg overflow-hidden",
+                      "relative group border overflow-hidden",
                       isSelected ? "" : "border-border",
                     )}
                   >
@@ -179,7 +179,7 @@ export default function PhotoGrid({
                         </button>
                       )}
 
-                      {isCompleted && (
+                      {isCompleted && onDeleteRequest && (
                         <Button
                           variant="ghost"
                           size="icon-sm"

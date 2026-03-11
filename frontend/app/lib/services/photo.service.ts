@@ -47,12 +47,19 @@ export const photoService = {
     if (cursor) params.set("cursor", cursor);
     return api.get<PaginatedPhotos>(`/api/photos${params.toString() ? `?${params}` : ""}`);
   },
+  listTrashPhotos: (cursor?: string) => {
+    const params = new URLSearchParams();
+    if (cursor) params.set("cursor", cursor);
+    return api.get<PaginatedPhotos>(`/api/photos/trash${params.toString() ? `?${params}` : ""}`);
+  },
   deletePhoto: (key: string) =>
     api.delete<{ message: string }>(
       `/api/photos?key=${encodeURIComponent(key)}`,
     ),
   deletePhotos: (keys: string[]) =>
     api.delete<{ message: string }>("/api/photos", { keys }),
+  restorePhotos: (keys: string[]) =>
+    api.post<{ message: string }>("/api/photos/trash/restore", { keys }),
   updatePhotoTakenAt: (key: string, takenAt: string | null) =>
     api.patch<Photo>(`/api/photos?key=${encodeURIComponent(key)}`, { takenAt }),
   updatePhotosTakenAt: (keys: string[], takenAt: string | null) =>
