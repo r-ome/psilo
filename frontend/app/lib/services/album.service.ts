@@ -20,6 +20,8 @@ export const albumService = {
     api.get<Album[]>("/api/albums"),
   getAlbum: (albumId: string) =>
     api.get<AlbumWithPhotos>(`/api/albums/${albumId}`),
+  updateAlbum: (albumId: string, name: string) =>
+    api.put<Album>(`/api/albums/${albumId}`, { name }),
   addPhotoToAlbum: (albumId: string, photoId: string) =>
     api.post<{ message: string }>(`/api/albums/${albumId}/photos`, { photoId }),
   removePhotoFromAlbum: (albumId: string, photoId: string) =>

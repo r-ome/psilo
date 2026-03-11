@@ -31,6 +31,8 @@ npm run diff         # cdk diff
 npx cdk deploy psilo-dev-apse1-stack --require-approval never
 ```
 
+- After implementing backend Lambda handlers or API routes, always verify the corresponding API Gateway route configuration in the CDK stack includes the new HTTP method. Check `*stack*` or `*gateway*` files for route definitions.
+
 ### Services (each has its own `node_modules`)
 
 ```bash
@@ -179,6 +181,7 @@ Frontend (`.env.local`):
 ## Workflow
 
 - Always run `npx tsc --noEmit` after making changes across multiple files to catch missed consumer files and type errors before committing.
+- When working in plan mode, do NOT start implementation until explicitly told. Conversely, when user says to implement, switch out of plan mode and write code. Never end a session with only a plan file when implementation was requested.
 
 ## Conventions
 
@@ -195,6 +198,6 @@ Frontend (`.env.local`):
 
 ## Git Workflow
 
-- **Do NOT automatically git add and commit changes.** Wait for explicit instructions from the user before committing.
 - After making code changes, inform the user of what was changed and ask if they'd like you to commit.
 - Only commit when the user explicitly says "commit", "create a commit", or similar.
+- For git operations: never commit without explicit permission. When removing files from git tracking, use `git rm --cached` — do NOT delete files from disk.

@@ -11,6 +11,10 @@ const mockInsert = jest.fn(() => ({ values: mockInsertValues }));
 const mockDeleteWhere = jest.fn().mockResolvedValue([]);
 const mockDelete = jest.fn(() => ({ where: mockDeleteWhere }));
 
+const mockUpdateSetWhere = jest.fn().mockResolvedValue([]);
+const mockUpdateSet = jest.fn(() => ({ where: mockUpdateSetWhere }));
+const mockUpdate = jest.fn(() => ({ set: mockUpdateSet }));
+
 const mockOrderBy = jest.fn().mockResolvedValue([]);
 const mockSelectWhere = jest.fn().mockResolvedValue([]);
 // mockWhereForCover needs to return { orderBy } but also be thenable for other routes
@@ -28,6 +32,7 @@ const mockDb = {
   insert: mockInsert,
   delete: mockDelete,
   select: mockSelect,
+  update: mockUpdate,
 };
 
 jest.mock('../../shared/db', () => ({
@@ -85,6 +90,9 @@ beforeEach(() => {
   mockOnConflictDoNothing.mockClear().mockResolvedValue([]);
   mockDelete.mockClear();
   mockDeleteWhere.mockClear().mockResolvedValue([]);
+  mockUpdate.mockClear();
+  mockUpdateSet.mockClear();
+  mockUpdateSetWhere.mockClear().mockResolvedValue([]);
   mockSelect.mockClear();
   mockFrom.mockClear();
   mockSelectWhere.mockClear().mockResolvedValue([]);
@@ -259,6 +267,53 @@ describe('manage-albums handler', () => {
     it('returns 400 when albumId is missing', async () => {
       const result = await callHandler(
         makeEvent('DELETE', 'DELETE /albums/{albumId}', 'u1', {}),
+      );
+
+      expect(result.statusCode).toBe(400);
+    });
+  });
+
+  describe('PUT /albums/{albumId}', () => {
+    it('updates album name and returns 200', async () => {
+      const existingAlbum = { id: 'a1', name: 'Old Name', userId: 'u1' };
+      const updatedAlbum = { id: 'a1', name: 'New Name', userId: 'u1' };
+
+      // First .where() for verifying album ownership
+      mockSelectWhere.mockResolvedValueOnce([existingAlbum]);
+      // Second .where() after update (for fetching updated album)
+      mockSelectWhere.mockResolvedValueOnce([updatedAlbum]);
+
+      const result = await callHandler(
+        makeEvent('PUT', 'PUT /albums/{albumId}', 'u1', { albumId: 'a1' }, { name: 'New Name' }),
+      );
+
+      expect(result.statusCode).toBe(200);
+      expect(mockUpdate).toHaveBeenCalledWith('albums_table');
+      const body = JSON.parse(result.body as string);
+      expect(body.name).toBe('New Name');
+    });
+
+    it('returns 404 when album not found', async () => {
+      mockSelectWhere.mockResolvedValueOnce([]);
+
+      const result = await callHandler(
+        makeEvent('PUT', 'PUT /albums/{albumId}', 'u1', { albumId: 'a1' }, { name: 'New Name' }),
+      );
+
+      expect(result.statusCode).toBe(404);
+    });
+
+    it('returns 400 when name is missing', async () => {
+      const result = await callHandler(
+        makeEvent('PUT', 'PUT /albums/{albumId}', 'u1', { albumId: 'a1' }, {}),
+      );
+
+      expect(result.statusCode).toBe(400);
+    });
+
+    it('returns 400 when albumId is missing', async () => {
+      const result = await callHandler(
+        makeEvent('PUT', 'PUT /albums/{albumId}', 'u1', {}, { name: 'New Name' }),
       );
 
       expect(result.statusCode).toBe(400);

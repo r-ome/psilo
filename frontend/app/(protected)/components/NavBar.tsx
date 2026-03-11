@@ -48,6 +48,14 @@ export const NavBar = () => {
 
             <NavigationMenuItem>
               <NavigationMenuLink asChild>
+                <Link href="/trash">
+                  <Button variant="link">Trash</Button>
+                </Link>
+              </NavigationMenuLink>
+            </NavigationMenuItem>
+
+            <NavigationMenuItem>
+              <NavigationMenuLink asChild>
                 <Button variant="link" onClick={logout}>
                   Logout
                 </Button>

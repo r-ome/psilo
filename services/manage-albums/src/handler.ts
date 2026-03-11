@@ -194,5 +194,28 @@ export const handler = async (
     return respond(200, { message: 'Album deleted' });
   }
 
+  // PUT /albums/{albumId}
+  if (method === 'PUT' && routeKey === 'PUT /albums/{albumId}') {
+    const albumId = event.pathParameters?.albumId;
+    if (!albumId) return respond(400, { message: 'Missing albumId' });
+
+    const body = event.body ? JSON.parse(event.body) : {};
+    const { name } = body as { name: string };
+    if (!name || !name.trim()) return respond(400, { message: 'name is required' });
+
+    // Verify album ownership
+    const [existingAlbum] = await db.select().from(albums).where(
+      and(eq(albums.id, albumId), eq(albums.userId, sub)),
+    );
+    if (!existingAlbum) return respond(404, { message: 'Album not found' });
+
+    // Update the album
+    await db.update(albums).set({ name: name.trim() }).where(eq(albums.id, albumId));
+
+    // Fetch and return the updated album
+    const [updatedAlbum] = await db.select().from(albums).where(eq(albums.id, albumId));
+    return respond(200, updatedAlbum);
+  }
+
   return respond(405, { message: 'Method not allowed' });
 };
