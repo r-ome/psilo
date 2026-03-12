@@ -80,6 +80,16 @@ export default function PhotoGrid({
                       "relative group border overflow-hidden",
                       isSelected ? "" : "border-border",
                     )}
+                    onMouseEnter={(e) => {
+                      if (!isVideo) return;
+                      const video = e.currentTarget.querySelector("video");
+                      video?.play().catch(() => {});
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isVideo) return;
+                      const video = e.currentTarget.querySelector("video");
+                      if (video) { video.pause(); video.currentTime = 0; }
+                    }}
                   >
                     <div
                       className={cn(
@@ -119,11 +129,6 @@ export default function PhotoGrid({
                                     playsInline
                                     preload="metadata"
                                     className="absolute inset-0 w-full h-full object-cover opacity-0 group-hover:opacity-100 transition-opacity duration-200"
-                                    onMouseEnter={(e) => e.currentTarget.play().catch(() => {})}
-                                    onMouseLeave={(e) => {
-                                      e.currentTarget.pause();
-                                      e.currentTarget.currentTime = 0;
-                                    }}
                                   >
                                     <source src={photo.previewUrl} type="video/mp4" />
                                   </video>
