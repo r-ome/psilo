@@ -35,7 +35,7 @@ describe("PsiloStack", () => {
             }),
           }),
         },
-        5, // UserProvisioning, GeneratePresignedUrl, ProcessPhotoMetadata, ManagePhotos, ManageAlbums
+        8, // UserProvisioning, GeneratePresignedUrl, ProcessPhotoMetadata, ManagePhotos, ManageAlbums, RequestRestore, HandleRestoreCompleted, PurgeDeletedPhotos
       );
     });
 
@@ -59,10 +59,10 @@ describe("PsiloStack", () => {
       });
     });
 
-    it("has S3 event notification for object created", () => {
+    it("has S3 event notification for object created (SQS)", () => {
       template.hasResourceProperties("Custom::S3BucketNotifications", {
         NotificationConfiguration: Match.objectLike({
-          LambdaFunctionConfigurations: Match.arrayWith([
+          QueueConfigurations: Match.arrayWith([
             Match.objectLike({
               Events: ["s3:ObjectCreated:*"],
               Filter: Match.objectLike({
