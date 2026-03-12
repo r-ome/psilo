@@ -9,17 +9,19 @@ import { SqsEventSource } from "aws-cdk-lib/aws-lambda-event-sources";
 import { Construct } from "constructs";
 import * as path from "path";
 import { DatabaseConstruct } from "./database";
+import { VideoPipelineConstruct } from "./video-pipeline";
 
 interface UploadPipelineProps {
   bucket: s3.Bucket;
   database: DatabaseConstruct;
+  videoPipeline: VideoPipelineConstruct;
 }
 
 export class UploadPipelineConstruct extends Construct {
   constructor(scope: Construct, id: string, props: UploadPipelineProps) {
     super(scope, id);
 
-    const { bucket, database } = props;
+    const { bucket, database, videoPipeline } = props;
 
     const uploadDlq = new sqs.Queue(this, "UploadDlq", {
       retentionPeriod: cdk.Duration.days(14),
@@ -41,7 +43,12 @@ export class UploadPipelineConstruct extends Construct {
       entry: path.join(__dirname, "../../../services/process-photo-metadata/src/handler.ts"),
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
-      environment: { BUCKET_NAME: bucket.bucketName, ...database.env },
+      environment: {
+        BUCKET_NAME: bucket.bucketName,
+        ...database.env,
+        BATCH_JOB_QUEUE: videoPipeline.jobQueueArn,
+        BATCH_JOB_DEFINITION: videoPipeline.jobDefinitionArn,
+      },
       timeout: cdk.Duration.seconds(300),
       memorySize: 3008,
       bundling: {
@@ -59,12 +66,19 @@ export class UploadPipelineConstruct extends Construct {
     bucket.grantRead(processPhotoMetadataFn);
     bucket.grantPut(processPhotoMetadataFn, "users/*/thumbnails/*");
     bucket.grantWrite(processPhotoMetadataFn, "users/*/thumbnails/*");
+    bucket.grantPut(processPhotoMetadataFn, "users/*/previews/*");
     database.grantAccess(processPhotoMetadataFn);
     uploadQueue.grantConsumeMessages(processPhotoMetadataFn);
     processPhotoMetadataFn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ["s3:PutObjectTagging"],
         resources: [`${bucket.bucketArn}/users/*`],
+      }),
+    );
+    processPhotoMetadataFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["batch:SubmitJob"],
+        resources: [videoPipeline.jobQueueArn, videoPipeline.jobDefinitionArn],
       }),
     );
     processPhotoMetadataFn.addEventSource(

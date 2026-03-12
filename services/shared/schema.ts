@@ -40,6 +40,7 @@ export const photos = pgTable(
     userId: varchar("user_id", { length: 255 }).notNull(),
     s3Key: varchar("s3_key", { length: 1000 }).notNull().unique(),
     thumbnailKey: varchar("thumbnail_key", { length: 1000 }),
+    previewKey: varchar("preview_key", { length: 1000 }),
     filename: varchar("filename", { length: 500 }).notNull(),
     size: integer("size"),
     thumbnailSize: integer("thumbnail_size"),

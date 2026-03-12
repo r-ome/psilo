@@ -10,6 +10,7 @@ export interface Photo {
   userId: string;
   s3Key: string;
   thumbnailKey: string | null;
+  previewKey?: string | null;
   filename: string;
   size: number | null;
   width: number | null;
@@ -21,7 +22,8 @@ export interface Photo {
   createdAt: string | null;
   takenAt: string | null;
   thumbnailUrl: string | null;
-  signedUrl?: string; // Video URL (actual object) since no thumbnails yet
+  previewUrl?: string | null;
+  signedUrl?: string;
 }
 
 export interface PaginatedPhotos {

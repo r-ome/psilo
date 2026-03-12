@@ -77,3 +77,4 @@ coverage/
 .turbo
 BILLING.md
 CHANGES.md
+SESSION-*.md

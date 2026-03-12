@@ -102,19 +102,34 @@ export default function PhotoGrid({
                     >
                       {isCompleted ? (
                         <>
-                          {isVideo && photo.signedUrl ? (
-                            <video
-                              autoPlay
-                              muted
-                              loop
-                              playsInline
-                              className="absolute inset-0 w-full h-full object-cover"
-                            >
-                              <source
-                                src={photo.signedUrl || ""}
-                                type={photo.contentType || undefined}
-                              />
-                            </video>
+                          {isVideo ? (
+                            photo.thumbnailUrl ? (
+                              <>
+                                <Image
+                                  src={photo.thumbnailUrl}
+                                  alt={photo.filename}
+                                  fill
+                                  className="object-cover"
+                                  sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 16vw"
+                                />
+                                {photo.previewUrl && (
+                                  <video
+                                    muted
+                                    loop
+                                    playsInline
+                                    preload="metadata"
+                                    className="absolute inset-0 w-full h-full object-cover opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                                    onMouseEnter={(e) => e.currentTarget.play().catch(() => {})}
+                                    onMouseLeave={(e) => {
+                                      e.currentTarget.pause();
+                                      e.currentTarget.currentTime = 0;
+                                    }}
+                                  >
+                                    <source src={photo.previewUrl} type="video/mp4" />
+                                  </video>
+                                )}
+                              </>
+                            ) : null
                           ) : photo.thumbnailUrl ? (
                             <Image
                               src={photo.thumbnailUrl!}

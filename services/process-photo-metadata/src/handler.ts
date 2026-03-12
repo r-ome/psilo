@@ -6,14 +6,15 @@ import {
   PutObjectCommand,
   PutObjectTaggingCommand,
 } from "@aws-sdk/client-s3";
+import { BatchClient, SubmitJobCommand } from "@aws-sdk/client-batch";
 import { eq } from "drizzle-orm";
 import sharp from "sharp";
 import exifReader from "exif-reader";
 import { createDb } from "../../shared/db";
 import { photos } from "../../shared/schema";
-import { randomUUID } from "crypto";
 
 const s3 = new S3Client({});
+const batch = new BatchClient({});
 
 function extractTakenAtFromFilename(filename: string): Date | null {
   // macOS screenshot: "Screenshot 2026-03-05 at 17-33-19 .png"
@@ -112,9 +113,9 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
         continue;
       }
 
-      // Skip thumbnails (prevent infinite loop)
+      // Skip thumbnails and previews (prevent infinite loop)
       const subFolder = parts[2];
-      if (subFolder === "thumbnails") continue;
+      if (subFolder === "thumbnails" || subFolder === "previews") continue;
 
       const userId = parts[1].slice(-36); // UUID is always the last 36 chars
       const filename = parts.slice(3).join("/"); // Skip users, userFolder, subFolder
@@ -143,41 +144,70 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
       let thumbnailKey: string | null = null;
       let thumbnailSize: number | null = null;
 
-      if (!contentType?.startsWith("video/")) {
-        const response = await s3.send(
-          new GetObjectCommand({ Bucket: bucket, Key: key }),
-        );
-        const chunks: Uint8Array[] = [];
-        for await (const chunk of response.Body as AsyncIterable<Uint8Array>) {
-          chunks.push(chunk);
-        }
-        const rawBuffer = Buffer.concat(chunks);
-
-        const metadata = await sharp(rawBuffer).metadata();
-        width = metadata.width ?? null;
-        height = metadata.height ?? null;
-        format = metadata.format ?? null;
-        takenAt = extractTakenAt(metadata.exif as Buffer | undefined, filename);
-
-        // Generate photo thumbnail
-        const thumbnailBuffer = await generatePhotoThumbnail(rawBuffer);
-        thumbnailSize = thumbnailBuffer.length;
-        const thumbnailPath = key
-          .replace(/\/(photos|videos)\//, "/thumbnails/")
-          .replace(/\.[^.]+$/, ".jpg");
+      if (contentType?.startsWith("video/")) {
+        // For videos: tag original, update basic metadata, then submit Batch job for thumbnail/preview
+        takenAt = extractTakenAtFromFilename(filename) ?? head.LastModified ?? null;
 
         await s3.send(
-          new PutObjectCommand({
+          new PutObjectTaggingCommand({
             Bucket: bucket,
-            Key: thumbnailPath,
-            Body: thumbnailBuffer,
-            ContentType: "image/jpeg",
-            StorageClass: "STANDARD",
+            Key: key,
+            Tagging: { TagSet: [{ Key: "media-type", Value: "original" }] },
           }),
         );
-        thumbnailKey = thumbnailPath;
+
+        await db
+          .update(photos)
+          .set({ contentType, takenAt })
+          .where(eq(photos.s3Key, key));
+
+        await batch.send(
+          new SubmitJobCommand({
+            jobName: `video-thumb-${Date.now()}`,
+            jobQueue: process.env.BATCH_JOB_QUEUE!,
+            jobDefinition: process.env.BATCH_JOB_DEFINITION!,
+            containerOverrides: {
+              environment: [{ name: "VIDEO_KEY", value: key }],
+            },
+          }),
+        );
+
+        console.log(`Submitted Batch job for video: ${key}`);
+        continue;
       }
-      // Note: Video thumbnails skipped for now (requires ffmpeg layer or external service)
+
+      const response = await s3.send(
+        new GetObjectCommand({ Bucket: bucket, Key: key }),
+      );
+      const chunks: Uint8Array[] = [];
+      for await (const chunk of response.Body as AsyncIterable<Uint8Array>) {
+        chunks.push(chunk);
+      }
+      const rawBuffer = Buffer.concat(chunks);
+
+      const metadata = await sharp(rawBuffer).metadata();
+      width = metadata.width ?? null;
+      height = metadata.height ?? null;
+      format = metadata.format ?? null;
+      takenAt = extractTakenAt(metadata.exif as Buffer | undefined, filename);
+
+      // Generate photo thumbnail
+      const thumbnailBuffer = await generatePhotoThumbnail(rawBuffer);
+      thumbnailSize = thumbnailBuffer.length;
+      const thumbnailPath = key
+        .replace(/\/(photos|videos)\//, "/thumbnails/")
+        .replace(/\.[^.]+$/, ".jpg");
+
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: thumbnailPath,
+          Body: thumbnailBuffer,
+          ContentType: "image/jpeg",
+          StorageClass: "STANDARD",
+        }),
+      );
+      thumbnailKey = thumbnailPath;
 
       takenAt =
         takenAt ?? extractTakenAtFromFilename(filename) ?? head.LastModified ?? null;

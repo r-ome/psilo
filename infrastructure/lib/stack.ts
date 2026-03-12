@@ -5,6 +5,7 @@ import { StorageConstruct } from "./constructs/storage";
 import { DatabaseConstruct } from "./constructs/database";
 import { AuthConstruct } from "./constructs/auth";
 import { UploadPipelineConstruct } from "./constructs/upload-pipeline";
+import { VideoPipelineConstruct } from "./constructs/video-pipeline";
 import { ApiConstruct } from "./constructs/api";
 
 export class PsiloStack extends cdk.Stack {
@@ -17,9 +18,15 @@ export class PsiloStack extends cdk.Stack {
     const database = new DatabaseConstruct(this, "Database", { isProd });
     const auth = new AuthConstruct(this, "Auth", { isProd, bucket: storage.bucket, database });
 
+    const videoPipeline = new VideoPipelineConstruct(this, "VideoPipeline", {
+      bucket: storage.bucket,
+      database,
+    });
+
     new UploadPipelineConstruct(this, "UploadPipeline", {
       bucket: storage.bucket,
       database,
+      videoPipeline,
     });
 
     const api = new ApiConstruct(this, "Api", {
