@@ -6,6 +6,7 @@ import {
   integer,
   timestamp,
   primaryKey,
+  text,
 } from "drizzle-orm/pg-core";
 
 export const retrievalBatches = pgTable("retrieval_batches", {
@@ -74,7 +75,7 @@ export const retrievalRequests = pgTable("retrieval_requests", {
   s3Key: varchar("s3_key", { length: 1000 }).notNull(),
   fileSize: integer("file_size").notNull().default(0),
   status: varchar("status", { length: 20 }).notNull().default("PENDING"),
-  retrievalLink: varchar("retrieval_link", { length: 2000 }),
+  retrievalLink: text("retrieval_link"),
   requestedAt: timestamp("requested_at").defaultNow(),
   availableAt: timestamp("available_at"),
   expiresAt: timestamp("expires_at"),
