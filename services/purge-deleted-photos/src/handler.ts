@@ -5,7 +5,7 @@ import { photos } from "../../shared/schema";
 
 const s3 = new S3Client({});
 const BUCKET_NAME = process.env.BUCKET_NAME!;
-const RETENTION_DAYS = 1;
+const RETENTION_DAYS = 30;
 const S3_BATCH_SIZE = 1000;
 const DB_BATCH_SIZE = 500;
 
