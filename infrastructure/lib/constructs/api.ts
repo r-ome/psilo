@@ -4,6 +4,9 @@ import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as events from "aws-cdk-lib/aws-events";
 import * as targets from "aws-cdk-lib/aws-events-targets";
+import * as sns from "aws-cdk-lib/aws-sns";
+import * as snsSubscriptions from "aws-cdk-lib/aws-sns-subscriptions";
+import * as s3n from "aws-cdk-lib/aws-s3-notifications";
 import * as apigatewayv2 from "aws-cdk-lib/aws-apigatewayv2";
 import * as apigatewayv2Integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import { NodejsFunction, NodejsFunctionProps } from "aws-cdk-lib/aws-lambda-nodejs";
@@ -12,6 +15,7 @@ import * as path from "path";
 import { DatabaseConstruct } from "./database";
 import { AuthConstruct } from "./auth";
 import { CdnConstruct } from "./cdn";
+import { ZipPipelineConstruct } from "./zip-pipeline";
 
 const { GET, POST, DELETE, PUT, PATCH } = apigatewayv2.HttpMethod;
 const { GET: CORS_GET, POST: CORS_POST, DELETE: CORS_DELETE, PATCH: CORS_PATCH } = apigatewayv2.CorsHttpMethod;
@@ -21,6 +25,7 @@ interface ApiProps {
   database: DatabaseConstruct;
   auth: AuthConstruct;
   cdn: CdnConstruct;
+  zipPipeline: ZipPipelineConstruct;
 }
 
 export class ApiConstruct extends Construct {
@@ -29,7 +34,7 @@ export class ApiConstruct extends Construct {
   constructor(scope: Construct, id: string, props: ApiProps) {
     super(scope, id);
 
-    const { bucket, database, auth, cdn } = props;
+    const { bucket, database, auth, cdn, zipPipeline } = props;
 
     // -------------------------------------------------------------------------
     // Background Lambdas (event-driven, no API routes)
@@ -93,6 +98,33 @@ export class ApiConstruct extends Construct {
         detail: { bucket: { name: [bucket.bucketName] } },
       },
     }).addTarget(new targets.LambdaFunction(handleRestoreCompletedFn));
+
+    // SNS-based glacier restore completion → zip flow
+    const glacierRestoreTopic = new sns.Topic(this, "GlacierRestoreCompletedTopic");
+
+    bucket.addEventNotification(
+      s3.EventType.OBJECT_RESTORE_COMPLETED,
+      new s3n.SnsDestination(glacierRestoreTopic),
+    );
+
+    const handleGlacierJobCompleteFn = this.createFn("HandleGlacierJobCompleteFn", {
+      service: "handle-glacier-job-complete",
+      environment: {
+        ECS_CLUSTER_ARN: zipPipeline.cluster.clusterArn,
+        ECS_TASK_DEFINITION_ARN: zipPipeline.taskDefinition.taskDefinitionArn,
+        ECS_CONTAINER_NAME: zipPipeline.containerName,
+        ECS_SUBNET_IDS: zipPipeline.vpc.publicSubnets.map((s) => s.subnetId).join(","),
+        ECS_SECURITY_GROUP_IDS: zipPipeline.securityGroup.securityGroupId,
+        ...database.env,
+      },
+      timeout: cdk.Duration.seconds(30),
+    });
+    zipPipeline.taskDefinition.grantRun(handleGlacierJobCompleteFn);
+    database.grantAccess(handleGlacierJobCompleteFn);
+
+    glacierRestoreTopic.addSubscription(
+      new snsSubscriptions.LambdaSubscription(handleGlacierJobCompleteFn),
+    );
 
     // -------------------------------------------------------------------------
     // API Lambdas

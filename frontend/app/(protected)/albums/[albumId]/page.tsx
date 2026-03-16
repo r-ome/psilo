@@ -19,6 +19,7 @@ import {
   AlbumWithPhotos,
 } from "@/app/lib/services/album.service";
 import { photoService, Photo } from "@/app/lib/services/photo.service";
+import { retrievalService, RetrievalBatch } from "@/app/lib/services/retrieval.service";
 import PhotoGrid from "@/app/(protected)/components/PhotoGrid";
 import DeleteConfirmDialog from "@/app/(protected)/components/DeleteConfirmDialog";
 import UpdateTakenAtDialog from "@/app/(protected)/components/UpdateTakenAtDialog";
@@ -59,6 +60,8 @@ export default function AlbumDetailPage({
   const [restoreAlbumOpen, setRestoreAlbumOpen] = useState(false);
   const [restoreAlbumTier, setRestoreAlbumTier] = useState<GlacierTier>("Standard");
   const [restoreAlbumLoading, setRestoreAlbumLoading] = useState(false);
+  // undefined = still loading, null = no active batch
+  const [albumBatch, setAlbumBatch] = useState<RetrievalBatch | null | undefined>(undefined);
   const [bulkUpdatePending, setBulkUpdatePending] = useState(false);
   const pickerScrollContainerRef = useRef<HTMLDivElement>(null);
   const prevShowPickerRef = useRef(false);
@@ -266,22 +269,72 @@ export default function AlbumDetailPage({
     if (glacierPhotos.length === 0) return;
     setRestoreAlbumLoading(true);
     try {
-      await downloadService.requestDownload(
+      const result = await downloadService.requestDownload(
         glacierPhotos.map((p) => p.s3Key),
         restoreAlbumTier,
         albumId,
         "ALBUM",
       );
       setRestoreAlbumOpen(false);
-      toast.success(
-        `Restore initiated for ${glacierPhotos.length} photo${glacierPhotos.length !== 1 ? "s" : ""}. Check Restore Requests page for status.`,
-      );
+
+      const active = result.alreadyActive ?? [];
+      const newCount = glacierPhotos.length - active.length;
+
+      if (active.length > 0 && newCount === 0) {
+        // Every photo already has an active restore
+        const readyCount = active.filter(
+          (r) => r.batchStatus === "COMPLETED" || r.batchStatus === "AVAILABLE",
+        ).length;
+        if (readyCount > 0) {
+          toast.info("These photos already have an active restore — check Restore Requests to download.", {
+            action: { label: "View", onClick: () => router.push("/restore-requests") },
+          });
+        } else {
+          toast.info("Restore already in progress for these photos.", {
+            action: { label: "View", onClick: () => router.push("/restore-requests") },
+          });
+        }
+      } else if (active.length > 0 && newCount > 0) {
+        toast.success(
+          `Restore started for ${newCount} photo${newCount !== 1 ? "s" : ""}. ${active.length} photo${active.length !== 1 ? "s" : ""} already had an active restore.`,
+          { action: { label: "View", onClick: () => router.push("/restore-requests") } },
+        );
+      } else {
+        toast.success(
+          `Restore initiated for ${glacierPhotos.length} photo${glacierPhotos.length !== 1 ? "s" : ""}. Check Restore Requests for status.`,
+          { action: { label: "View", onClick: () => router.push("/restore-requests") } },
+        );
+      }
     } catch {
       toast.error("Failed to initiate restore. Please try again.");
     } finally {
       setRestoreAlbumLoading(false);
     }
   };
+
+  const BATCH_IN_FLIGHT: RetrievalBatch["status"][] = ["PENDING", "IN_PROGRESS", "ZIPPING"];
+  const BATCH_READY: RetrievalBatch["status"][] = ["COMPLETED", "AVAILABLE", "PARTIAL_FAILURE", "PARTIAL"];
+
+  const fetchAlbumBatch = useCallback(() => {
+    const now = new Date();
+    retrievalService.listBatches().then(({ batches }) => {
+      const active = batches
+        .filter((b) => b.sourceId === albumId)
+        .filter((b) => b.status !== "EXPIRED" && b.status !== "FAILED")
+        .filter((b) => !b.expiresAt || new Date(b.expiresAt) > now)
+        .sort((a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime())[0] ?? null;
+      setAlbumBatch(active);
+    }).catch(() => setAlbumBatch(null));
+  }, [albumId]);
+
+  useEffect(() => { fetchAlbumBatch(); }, [fetchAlbumBatch]);
+
+  // Poll while the batch is still being processed
+  useEffect(() => {
+    if (!albumBatch || !BATCH_IN_FLIGHT.includes(albumBatch.status)) return;
+    const interval = setInterval(fetchAlbumBatch, 5000);
+    return () => clearInterval(interval);
+  }, [albumBatch, fetchAlbumBatch]);
 
   const albumPhotoIds = new Set(albumPhotos.map((p) => p.id));
   const availablePhotos = allPhotos.filter(
@@ -352,26 +405,39 @@ export default function AlbumDetailPage({
           </Button>
         </div>
         <div className="flex items-center gap-2">
-          {albumPhotos.length > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setAlbumDownloadOpen(true)}
-            >
-              <Download className="h-4 w-4 mr-1" />
-              Download Album
-            </Button>
-          )}
-          {albumPhotos.some((p) => p.storageClass === "GLACIER") && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setRestoreAlbumOpen(true)}
-            >
-              <ArchiveRestore className="h-4 w-4 mr-1" />
-              Restore Album
-            </Button>
-          )}
+          {albumPhotos.length > 0 && (() => {
+            const hasGlacier = albumPhotos.some((p) => p.storageClass === "GLACIER");
+            if (!hasGlacier) {
+              return (
+                <Button variant="outline" size="sm" onClick={() => setAlbumDownloadOpen(true)}>
+                  <Download className="h-4 w-4 mr-1" />
+                  Download Album
+                </Button>
+              );
+            }
+            if (albumBatch && BATCH_READY.includes(albumBatch.status)) {
+              return (
+                <Button variant="outline" size="sm" onClick={() => router.push("/restore-requests")}>
+                  <Download className="h-4 w-4 mr-1" />
+                  Download
+                </Button>
+              );
+            }
+            if (albumBatch && BATCH_IN_FLIGHT.includes(albumBatch.status)) {
+              return (
+                <Button variant="outline" size="sm" disabled>
+                  <Loader2Icon className="h-4 w-4 mr-1 animate-spin" />
+                  Restoring…
+                </Button>
+              );
+            }
+            return (
+              <Button variant="outline" size="sm" onClick={() => setRestoreAlbumOpen(true)}>
+                <ArchiveRestore className="h-4 w-4 mr-1" />
+                Restore Album
+              </Button>
+            );
+          })()}
           <Button
             variant="outline"
             size="sm"

@@ -5,7 +5,16 @@ export interface RetrievalBatch {
   batchType: "SINGLE" | "ALBUM" | "MANUAL";
   sourceId: string | null;
   retrievalTier: "EXPEDITED" | "STANDARD" | "BULK";
-  status: "PENDING" | "PARTIAL" | "AVAILABLE" | "EXPIRED" | "FAILED";
+  status:
+    | "PENDING"
+    | "IN_PROGRESS"
+    | "ZIPPING"
+    | "COMPLETED"
+    | "PARTIAL_FAILURE"
+    | "PARTIAL"
+    | "AVAILABLE"
+    | "EXPIRED"
+    | "FAILED";
   totalFiles: number;
   totalSize: number;
   requestedAt: string;
@@ -20,7 +29,7 @@ export interface RetrievalRequest {
   s3Key: string;
   filename: string | null;
   fileSize: number;
-  status: "PENDING" | "AVAILABLE" | "EXPIRED" | "FAILED";
+  status: "PENDING" | "IN_PROGRESS" | "READY" | "AVAILABLE" | "EXPIRED" | "FAILED";
   retrievalLink: string | null;
   requestedAt: string;
   availableAt: string | null;

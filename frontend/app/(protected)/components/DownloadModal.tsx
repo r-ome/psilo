@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Loader2Icon } from "lucide-react";
 import {
   Dialog,
@@ -57,6 +58,16 @@ function triggerDownload(url: string, filename: string) {
   document.body.removeChild(a);
 }
 
+const ACTIVE_STATUS_LABEL: Record<string, string> = {
+  PENDING:         "restore pending",
+  IN_PROGRESS:     "restore in progress",
+  ZIPPING:         "being zipped",
+  COMPLETED:       "ready to download",
+  PARTIAL_FAILURE: "partially ready",
+  AVAILABLE:       "available",
+  PARTIAL:         "partially available",
+};
+
 export default function DownloadModal({
   isOpen,
   onClose,
@@ -65,6 +76,7 @@ export default function DownloadModal({
   const [selectedTier, setSelectedTier] = useState<GlacierTier>("Standard");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [hasAlreadyActive, setHasAlreadyActive] = useState(false);
 
   const standardPhotos = photos.filter((p) => p.storageClass === "STANDARD");
   const glacierPhotos = photos.filter((p) => p.storageClass === "GLACIER");
@@ -73,12 +85,14 @@ export default function DownloadModal({
   const handleClose = () => {
     setMessage(null);
     setLoading(false);
+    setHasAlreadyActive(false);
     onClose();
   };
 
   const handleDownload = async () => {
     setLoading(true);
     setMessage(null);
+    setHasAlreadyActive(false);
     try {
       const keys = photos.map((p) => p.s3Key);
       const result = await downloadService.requestDownload(
@@ -93,11 +107,38 @@ export default function DownloadModal({
         setTimeout(() => triggerDownload(url, filename), i * 50);
       });
 
-      if (result.glacierAlreadyInProgress) {
+      const active = result.alreadyActive ?? [];
+      const newGlacierInitiated = result.glacierInitiated;
+
+      if (active.length > 0) {
+        setHasAlreadyActive(true);
+        // Group active restores by status for a concise summary
+        const readyCount = active.filter(
+          (r) => r.batchStatus === "COMPLETED" || r.batchStatus === "AVAILABLE",
+        ).length;
+        const inProgressCount = active.length - readyCount;
+
+        const parts: string[] = [];
+        if (readyCount > 0)
+          parts.push(
+            `${readyCount} photo${readyCount !== 1 ? "s are" : " is"} already ready to download`,
+          );
+        if (inProgressCount > 0)
+          parts.push(
+            `${inProgressCount} photo${inProgressCount !== 1 ? "s have" : " has"} a restore already in progress`,
+          );
+
+        const summary = parts.join(" and ") + ".";
+        setMessage(
+          newGlacierInitiated
+            ? `${summary} A new restore was started for the remaining photos.`
+            : summary,
+        );
+      } else if (result.glacierAlreadyInProgress) {
         setMessage(
           "Restore already in progress — you'll receive an email when your Glacier photos are ready.",
         );
-      } else if (result.glacierInitiated) {
+      } else if (newGlacierInitiated) {
         setMessage(
           "Restore started — you'll receive an email when your Glacier photos are ready.",
         );
@@ -169,9 +210,18 @@ export default function DownloadModal({
           )}
 
           {message && (
-            <p className="text-sm text-muted-foreground bg-muted rounded-md p-3">
-              {message}
-            </p>
+            <div className="bg-muted rounded-md p-3 space-y-1.5">
+              <p className="text-sm text-muted-foreground">{message}</p>
+              {hasAlreadyActive && (
+                <Link
+                  href="/restore-requests"
+                  className="text-sm font-medium text-primary hover:underline"
+                  onClick={handleClose}
+                >
+                  View restore requests →
+                </Link>
+              )}
+            </div>
           )}
         </div>
 

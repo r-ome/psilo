@@ -8,6 +8,7 @@ import { UploadPipelineConstruct } from "./constructs/upload-pipeline";
 import { VideoPipelineConstruct } from "./constructs/video-pipeline";
 import { ApiConstruct } from "./constructs/api";
 import { CdnConstruct } from "./constructs/cdn";
+import { ZipPipelineConstruct } from "./constructs/zip-pipeline";
 
 export class PsiloStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -36,11 +37,17 @@ export class PsiloStack extends cdk.Stack {
       privateKeySecretArn: env.CLOUDFRONT_PRIVATE_KEY_SECRET_ARN,
     });
 
+    const zipPipeline = new ZipPipelineConstruct(this, "ZipPipeline", {
+      bucket: storage.bucket,
+      database,
+    });
+
     const api = new ApiConstruct(this, "Api", {
       bucket: storage.bucket,
       database,
       auth,
       cdn,
+      zipPipeline,
     });
 
     // Stack outputs

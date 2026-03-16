@@ -1,0 +1,19 @@
+{
+  "name": "handle-glacier-job-complete",
+  "version": "1.0.0",
+  "scripts": {
+    "test": "jest"
+  },
+  "dependencies": {
+    "@aws-sdk/client-ecs": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.0",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^22.0.0",
+    "aws-sdk-client-mock": "^4",
+    "jest": "^30",
+    "ts-jest": "^29",
+    "typescript": "^5.0.0"
+  }
+}

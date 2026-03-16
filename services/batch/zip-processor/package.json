@@ -1,0 +1,20 @@
+{
+  "name": "zip-processor",
+  "version": "1.0.0",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "bundle": "esbuild src/index.ts --bundle --platform=node --target=node22 --outfile=dist/bundle.js",
+    "build": "npm run typecheck && npm run bundle",
+    "start": "node dist/bundle.js"
+  },
+  "dependencies": {
+    "@aws-sdk/lib-storage": "^3.0.0",
+    "archiver": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/archiver": "^6.0.0",
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.21.0",
+    "typescript": "^5.0.0"
+  }
+}

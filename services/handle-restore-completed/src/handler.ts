@@ -6,7 +6,7 @@ import {
   AdminGetUserCommand,
 } from "@aws-sdk/client-cognito-identity-provider";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { createDb } from "../../shared/db";
 import { photos, users, retrievalBatches, retrievalRequests } from "../../shared/schema";
 
@@ -135,12 +135,19 @@ export const handler = async (
     const someAvailable = allRequests.some((r) => r.status === "AVAILABLE");
     const newBatchStatus = allAvailable ? "AVAILABLE" : someAvailable ? "PARTIAL" : "PENDING";
 
+    // Only update batches that are still in the email flow (PENDING/PARTIAL/AVAILABLE).
+    // Batches in IN_PROGRESS/ZIPPING/COMPLETED/FAILED are owned by the zip flow.
     await db
       .update(retrievalBatches)
       .set({
         status: newBatchStatus,
         ...(allAvailable ? { availableAt: now } : {}),
       })
-      .where(eq(retrievalBatches.id, batchId));
+      .where(
+        and(
+          eq(retrievalBatches.id, batchId),
+          inArray(retrievalBatches.status, ["PENDING", "PARTIAL", "AVAILABLE"]),
+        ),
+      );
   }
 };

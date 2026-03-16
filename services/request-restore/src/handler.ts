@@ -9,7 +9,7 @@ import {
   RestoreObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, not, or, isNull, gt } from "drizzle-orm";
 import { createDb } from "../../shared/db";
 import {
   photos,
@@ -29,14 +29,71 @@ function respond(statusCode: number, body: unknown): APIGatewayProxyResultV2 {
   };
 }
 
-/**
- * Parses the S3 Restore header to determine if a restored copy is available.
- * Header format: `ongoing-request="false", expiry-date="..."` (restored)
- *                `ongoing-request="true"` (in progress)
- */
 function isRestoredCopyAvailable(restore: string | undefined): boolean {
   if (!restore) return false;
   return restore.includes('ongoing-request="false"');
+}
+
+export async function initiateBatchRetrieval(
+  db: ReturnType<typeof createDb>,
+  s3Client: S3Client,
+  batchId: string,
+): Promise<void> {
+  const [batch] = await db
+    .select()
+    .from(retrievalBatches)
+    .where(eq(retrievalBatches.id, batchId))
+    .limit(1);
+
+  if (!batch) throw new Error(`Batch not found: ${batchId}`);
+
+  const requests = await db
+    .select()
+    .from(retrievalRequests)
+    .where(
+      and(
+        eq(retrievalRequests.batchId, batchId),
+        eq(retrievalRequests.status, "PENDING"),
+      ),
+    );
+
+  await Promise.all(
+    requests.map(async (req) => {
+      try {
+        // DB stores tier as uppercase (e.g. "STANDARD") — S3 needs title case ("Standard")
+        const tier = batch.retrievalTier.charAt(0) + batch.retrievalTier.slice(1).toLowerCase();
+        await s3Client.send(
+          new RestoreObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: req.s3Key,
+            RestoreRequest: {
+              Days: RESTORE_RETENTION_DAYS,
+              GlacierJobParameters: {
+                Tier: tier as "Expedited" | "Standard" | "Bulk",
+              },
+            },
+          }),
+        );
+      } catch (err: unknown) {
+        if ((err as { name?: string })?.name !== "RestoreAlreadyInProgress") {
+          throw err;
+        }
+      }
+    }),
+  );
+
+  const ids = requests.map((r) => r.id);
+  if (ids.length > 0) {
+    await db
+      .update(retrievalRequests)
+      .set({ status: "IN_PROGRESS" })
+      .where(inArray(retrievalRequests.id, ids));
+  }
+
+  await db
+    .update(retrievalBatches)
+    .set({ status: "IN_PROGRESS" })
+    .where(eq(retrievalBatches.id, batchId));
 }
 
 export const handler = async (
@@ -64,7 +121,7 @@ export const handler = async (
 
   const db = createDb();
 
-  // Verify ownership: all keys must belong to the authenticated user
+  // Verify ownership
   const dbPhotos = await db
     .select()
     .from(photos)
@@ -74,27 +131,47 @@ export const handler = async (
     return respond(403, { message: "Forbidden" });
   }
 
+  // Find keys that already have an active (non-expired, non-failed) retrieval request
+  const now = new Date();
+  const activeRows = await db
+    .select({
+      s3Key: retrievalRequests.s3Key,
+      batchId: retrievalRequests.batchId,
+      batchStatus: retrievalBatches.status,
+      retrievalLink: retrievalRequests.retrievalLink,
+      expiresAt: retrievalBatches.expiresAt,
+    })
+    .from(retrievalRequests)
+    .innerJoin(retrievalBatches, eq(retrievalRequests.batchId, retrievalBatches.id))
+    .where(
+      and(
+        inArray(retrievalRequests.s3Key, keys),
+        eq(retrievalRequests.userId, sub),
+        not(inArray(retrievalRequests.status, ["EXPIRED", "FAILED"])),
+        not(inArray(retrievalBatches.status, ["EXPIRED", "FAILED"])),
+        or(isNull(retrievalBatches.expiresAt), gt(retrievalBatches.expiresAt, now)),
+      ),
+    );
+
+  const alreadyActiveByKey = new Map(activeRows.map((r) => [r.s3Key, r]));
+
   const standardUrls: { key: string; url: string }[] = [];
   const glacierPhotosTracking: Array<{ photo: (typeof dbPhotos)[0] }> = [];
-  let glacierInitiated = false;
-  let glacierAlreadyInProgress = false;
 
   await Promise.all(
     dbPhotos.map(async (photo) => {
-      // Always check the real S3 state — the DB storageClass may lag behind
-      // if the EventBridge lifecycle-transition event hasn't fired yet.
+      // Skip Glacier restore for keys that already have an active request
+      if (alreadyActiveByKey.has(photo.s3Key)) return;
+
       const head = await s3.send(
         new HeadObjectCommand({ Bucket: BUCKET_NAME, Key: photo.s3Key }),
       );
 
       const actualStorageClass = head.StorageClass ?? "STANDARD";
       const isGlacier =
-        actualStorageClass === "GLACIER" ||
-        actualStorageClass === "DEEP_ARCHIVE";
+        actualStorageClass === "GLACIER" || actualStorageClass === "DEEP_ARCHIVE";
 
       if (!isGlacier || isRestoredCopyAvailable(head.Restore)) {
-        // Either genuinely STANDARD, or a Glacier restore has already completed
-        // and a temporary copy is available — serve a presigned URL.
         const url = await getSignedUrl(
           s3,
           new GetObjectCommand({
@@ -106,40 +183,12 @@ export const handler = async (
         );
         standardUrls.push({ key: photo.s3Key, url });
       } else {
-        // Object is in Glacier and not yet restored — initiate a restore.
-        try {
-          await s3.send(
-            new RestoreObjectCommand({
-              Bucket: BUCKET_NAME,
-              Key: photo.s3Key,
-              RestoreRequest: {
-                Days: RESTORE_RETENTION_DAYS,
-                GlacierJobParameters: {
-                  Tier: tier as "Expedited" | "Standard" | "Bulk",
-                },
-              },
-            }),
-          );
-          glacierInitiated = true;
-          glacierPhotosTracking.push({ photo });
-        } catch (err: unknown) {
-          if (
-            err &&
-            typeof err === "object" &&
-            "name" in err &&
-            err.name === "RestoreAlreadyInProgress"
-          ) {
-            glacierAlreadyInProgress = true;
-            glacierPhotosTracking.push({ photo });
-          } else {
-            throw err;
-          }
-        }
+        glacierPhotosTracking.push({ photo });
       }
     }),
   );
 
-  // Create tracking records if any Glacier restores were initiated or already in progress
+  let glacierInitiated = false;
   if (glacierPhotosTracking.length > 0) {
     const detectedBatchType =
       batchType ?? (keys.length === 1 ? "SINGLE" : "MANUAL");
@@ -172,11 +221,21 @@ export const handler = async (
         status: "PENDING",
       })),
     );
+
+    await initiateBatchRetrieval(db, s3, batch.id);
+    glacierInitiated = true;
   }
 
   return respond(200, {
     standardUrls,
     glacierInitiated,
-    glacierAlreadyInProgress,
+    glacierAlreadyInProgress: false,
+    alreadyActive: activeRows.map((r) => ({
+      key: r.s3Key,
+      batchId: r.batchId,
+      batchStatus: r.batchStatus,
+      retrievalLink: r.retrievalLink,
+      expiresAt: r.expiresAt?.toISOString() ?? null,
+    })),
   });
 };
