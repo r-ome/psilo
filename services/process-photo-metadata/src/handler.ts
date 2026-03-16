@@ -12,6 +12,7 @@ import sharp from "sharp";
 import exifReader from "exif-reader";
 import { createDb } from "../../shared/db";
 import { photos } from "../../shared/schema";
+import { computePHash } from "../../shared/phash";
 
 const s3 = new S3Client({});
 const batch = new BatchClient({});
@@ -222,6 +223,14 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
       const pages = metadata.pages ?? null;
       takenAt = extractTakenAt(metadata.exif as Buffer | undefined, filename);
 
+      // Compute pHash before thumbnail generation
+      let phash: string | null = null;
+      try {
+        phash = await computePHash(rawBuffer);
+      } catch (err) {
+        console.warn("pHash computation failed:", err);
+      }
+
       // Generate photo thumbnail
       const { buffer: thumbnailBuffer, contentType: thumbnailContentType, extension } =
         await generatePhotoThumbnail(rawBuffer, format, pages);
@@ -269,6 +278,7 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
           takenAt,
           thumbnailKey,
           thumbnailSize,
+          phash,
         })
         .where(eq(photos.s3Key, key));
 

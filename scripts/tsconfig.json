@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "ES2022",
+    "esModuleInterop": true,
+    "strict": true
+  },
+  "include": ["scripts/**/*.ts", "services/shared/**/*.ts"]
+}

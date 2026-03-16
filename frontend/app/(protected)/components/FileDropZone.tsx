@@ -5,10 +5,29 @@ import Image from "next/image";
 import { Upload, Trash2 } from "lucide-react";
 import { Button } from "@/app/components/ui/button";
 import { cn } from "@/app/lib/utils";
-import { s3Service } from "@/app/lib/services/s3.service";
+import { s3Service, type DuplicatePhoto } from "@/app/lib/services/s3.service";
+import { api } from "@/app/lib/api";
+import { getImageDataForHash } from "@/app/lib/utils/image-hash";
+import DuplicateUploadModal from "./DuplicateUploadModal";
 
 interface FileDropZoneProps {
   onUploadComplete?: () => void;
+}
+
+interface PendingDuplicate {
+  file: File;
+  duplicate: DuplicatePhoto;
+  resolve: (action: "keepBoth" | "skip" | "replace") => void;
+}
+
+function uniqueFilename(filename: string, existingFilenames: string[]): string {
+  if (!existingFilenames.includes(filename)) return filename;
+  const lastDot = filename.lastIndexOf(".");
+  const base = lastDot !== -1 ? filename.slice(0, lastDot) : filename;
+  const ext = lastDot !== -1 ? filename.slice(lastDot) : "";
+  let counter = 1;
+  while (existingFilenames.includes(`${base}_${counter}${ext}`)) counter++;
+  return `${base}_${counter}${ext}`;
 }
 
 const FileDropZone: React.FC<FileDropZoneProps> = ({ onUploadComplete }) => {
@@ -17,6 +36,20 @@ const FileDropZone: React.FC<FileDropZoneProps> = ({ onUploadComplete }) => {
   const [fileProgresses, setFileProgresses] = useState<Record<string, number>>(
     {},
   );
+  const [pendingDuplicate, setPendingDuplicate] = useState<PendingDuplicate | null>(null);
+
+  const askAboutDuplicate = (file: File, duplicate: DuplicatePhoto): Promise<"keepBoth" | "skip" | "replace"> => {
+    return new Promise((resolve) => {
+      setPendingDuplicate({ file, duplicate, resolve });
+    });
+  };
+
+  const handleDuplicateResolved = (action: "keepBoth" | "skip" | "replace") => {
+    if (pendingDuplicate) {
+      pendingDuplicate.resolve(action);
+      setPendingDuplicate(null);
+    }
+  };
 
   const uploadFile = async (file: File, presignedUrl: string) => {
     await s3Service.uploadToS3(presignedUrl, file, (percent) =>
@@ -44,22 +77,62 @@ const FileDropZone: React.FC<FileDropZoneProps> = ({ onUploadComplete }) => {
     if (newFiles.length === 0) return;
     setUploadedFiles((prev) => [...prev, ...newFiles]);
 
-    // Generate all presigned URLs upfront in parallel
-    const presignedUrls = await Promise.all(
-      newFiles.map((file) =>
-        s3Service.getPresignedURL({
-          filename: file.name,
+    // Process files sequentially so we can pause for modal input
+    for (const file of newFiles) {
+      const imageData = await getImageDataForHash(file);
+      const presignResult = await s3Service.getPresignedURL({
+        filename: file.name,
+        contentType: file.type,
+        ...(imageData ? { imageData } : {}),
+      });
+
+      if (presignResult.status === "duplicate") {
+        const bestMatch = presignResult.duplicates[0];
+        const action = await askAboutDuplicate(file, bestMatch);
+
+        if (action === "skip") {
+          removeFile(file.name);
+          continue;
+        }
+
+        if (action === "replace") {
+          try {
+            await api.delete("/api/photos", {
+              keys: presignResult.duplicates.map((d) => d.s3Key),
+            });
+          } catch (err) {
+            console.error("Failed to delete existing photo:", err);
+            toast.error(`Failed to replace existing photo for ${file.name}`);
+            removeFile(file.name);
+            continue;
+          }
+        }
+
+        // keepBoth or replace: re-fetch presign without imageData to skip re-check
+        // For keepBoth, avoid overwriting the existing S3 object if filenames match
+        const uploadFilename =
+          action === "keepBoth"
+            ? uniqueFilename(file.name, presignResult.duplicates.map((d) => d.filename))
+            : file.name;
+
+        const retryResult = await s3Service.getPresignedURL({
+          filename: uploadFilename,
           contentType: file.type,
-        }),
-      ),
-    );
+        });
 
-    // Upload all files in parallel using their respective URLs
-    await Promise.all(
-      newFiles.map((file, i) => uploadFile(file, presignedUrls[i].url)),
-    );
+        if (retryResult.status !== "ok") {
+          toast.error(`Failed to get upload URL for ${file.name}`);
+          removeFile(file.name);
+          continue;
+        }
 
-    // Notify parent once after all uploads finish
+        await uploadFile(file, retryResult.url);
+        continue;
+      }
+
+      await uploadFile(file, presignResult.url);
+    }
+
     onUploadComplete?.();
   };
 
@@ -87,6 +160,15 @@ const FileDropZone: React.FC<FileDropZoneProps> = ({ onUploadComplete }) => {
 
   return (
     <>
+      {pendingDuplicate && (
+        <DuplicateUploadModal
+          file={pendingDuplicate.file}
+          duplicate={pendingDuplicate.duplicate}
+          onKeepBoth={() => handleDuplicateResolved("keepBoth")}
+          onSkip={() => handleDuplicateResolved("skip")}
+          onReplaceExisting={() => handleDuplicateResolved("replace")}
+        />
+      )}
       <div className="px-6">
         <div
           className="border-2 border-dashed border-border rounded-md p-8 flex flex-col items-center justify-center text-center cursor-pointer"

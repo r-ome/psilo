@@ -24,9 +24,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { filename, contentType } = body as {
+  const { filename, contentType, imageData } = body as {
     filename: string;
     contentType: string;
+    imageData?: string;
   };
 
   if (!filename || !contentType) {
@@ -44,7 +45,7 @@ export async function POST(req: NextRequest) {
         "Content-Type": "application/json",
         Authorization: `Bearer ${idToken}`,
       },
-      body: JSON.stringify({ filename, contentType }),
+      body: JSON.stringify({ filename, contentType, ...(imageData ? { imageData } : {}) }),
     });
 
     if (!response.ok) {

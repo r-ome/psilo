@@ -98,19 +98,40 @@ export class ApiConstruct extends Construct {
     // API Lambdas
     // -------------------------------------------------------------------------
 
-    const generatePresignedUrlFn = this.createFn("GeneratePresignedUrlFn", {
-      service: "generate-presigned-url",
-      environment: { BUCKET_NAME: bucket.bucketName },
-      timeout: cdk.Duration.seconds(10),
-    });
-    bucket.grantPut(generatePresignedUrlFn);
-
     const cfEnv = {
       CLOUDFRONT_DOMAIN: cdn.cloudfrontDomain,
       CLOUDFRONT_KEY_PAIR_ID: cdn.keyPairId,
       CLOUDFRONT_PRIVATE_KEY_SECRET_ARN: cdn.privateKeySecret.secretArn,
       USE_CLOUDFRONT: "true",
     };
+
+    const generatePresignedUrlFn = new NodejsFunction(this, "GeneratePresignedUrlFn", {
+      entry: path.join(__dirname, "../../../services/generate-presigned-url/src/handler.ts"),
+      handler: "handler",
+      runtime: lambda.Runtime.NODEJS_22_X,
+      environment: {
+        BUCKET_NAME: bucket.bucketName,
+        ...database.env,
+        ...cfEnv,
+      },
+      timeout: cdk.Duration.seconds(29),
+      memorySize: 512,
+      bundling: {
+        esbuildVersion: "0.21",
+        nodeModules: ["sharp"],
+        commandHooks: {
+          beforeInstall: () => [],
+          beforeBundling: () => [],
+          afterBundling: (_inputDir: string, outputDir: string) => [
+            `cd ${outputDir} && rm -rf node_modules/sharp node_modules/@img && npm install --os=linux --cpu=x64 sharp`,
+          ],
+        },
+      },
+    });
+    bucket.grantPut(generatePresignedUrlFn);
+    bucket.grantRead(generatePresignedUrlFn);
+    database.grantAccess(generatePresignedUrlFn);
+    cdn.privateKeySecret.grantRead(generatePresignedUrlFn);
 
     const managePhotosFn = this.createFn("ManagePhotosFn", {
       service: "manage-photos",

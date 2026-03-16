@@ -1,8 +1,23 @@
 import { api } from "@/app/lib/api";
 
+export interface DuplicatePhoto {
+  id: string;
+  filename: string;
+  thumbnailUrl: string | null;
+  s3Key: string;
+  distance: number;
+}
+
+export type PresignResponse =
+  | { status: "ok"; url: string; key: string }
+  | { status: "duplicate"; duplicates: DuplicatePhoto[] };
+
 export const s3Service = {
-  getPresignedURL: (body: { filename: string; contentType: string }) =>
-    api.post<{ url: string; key: string }>("/api/files/upload", body),
+  getPresignedURL: (body: {
+    filename: string;
+    contentType: string;
+    imageData?: string;
+  }) => api.post<PresignResponse>("/api/files/upload", body),
   uploadToS3: (
     url: string,
     file: File,

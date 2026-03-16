@@ -27,6 +27,10 @@ jest.mock('drizzle-orm', () => ({
   eq: jest.fn((col: unknown, val: unknown) => ({ col, val })),
 }));
 
+jest.mock('../../shared/phash', () => ({
+  computePHash: jest.fn().mockResolvedValue('abcdef1234567890'),
+}));
+
 const mockExifReader = jest.fn();
 jest.mock('exif-reader', () => mockExifReader);
 
