@@ -82,13 +82,42 @@ function extractTakenAt(
   return extractTakenAtFromFilename(filename);
 }
 
-async function generatePhotoThumbnail(buffer: Buffer): Promise<Buffer> {
-  return sharp(buffer)
+type ThumbnailResult = {
+  buffer: Buffer;
+  contentType: string;
+  extension: string;
+};
+
+async function generatePhotoThumbnail(
+  rawBuffer: Buffer,
+  format: string | null,
+  pages: number | null,
+): Promise<ThumbnailResult> {
+  if (format === "gif") {
+    const buffer = await sharp(rawBuffer, { animated: true })
+      .resize(800, 800, { fit: "inside", withoutEnlargement: true })
+      .gif()
+      .toBuffer();
+    return { buffer, contentType: "image/gif", extension: "gif" };
+  }
+
+  if (format === "webp") {
+    const buffer = await sharp(rawBuffer, { animated: true })
+      .rotate()
+      .resize(800, 800, { fit: "inside", withoutEnlargement: true })
+      .toColorspace("srgb")
+      .webp({ quality: 80 })
+      .toBuffer();
+    return { buffer, contentType: "image/webp", extension: "webp" };
+  }
+
+  const buffer = await sharp(rawBuffer)
     .rotate()
     .resize(800, 800, { fit: "inside", withoutEnlargement: true })
     .toColorspace("srgb")
     .jpeg({ quality: 80 })
     .toBuffer();
+  return { buffer, contentType: "image/jpeg", extension: "jpg" };
 }
 
 export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
@@ -190,21 +219,23 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
       width = metadata.width ?? null;
       height = metadata.height ?? null;
       format = metadata.format ?? null;
+      const pages = metadata.pages ?? null;
       takenAt = extractTakenAt(metadata.exif as Buffer | undefined, filename);
 
       // Generate photo thumbnail
-      const thumbnailBuffer = await generatePhotoThumbnail(rawBuffer);
+      const { buffer: thumbnailBuffer, contentType: thumbnailContentType, extension } =
+        await generatePhotoThumbnail(rawBuffer, format, pages);
       thumbnailSize = thumbnailBuffer.length;
       const thumbnailPath = key
         .replace(/\/(photos|videos)\//, "/thumbnails/")
-        .replace(/\.[^.]+$/, ".jpg");
+        .replace(/\.[^.]+$/, `.${extension}`);
 
       await s3.send(
         new PutObjectCommand({
           Bucket: bucket,
           Key: thumbnailPath,
           Body: thumbnailBuffer,
-          ContentType: "image/jpeg",
+          ContentType: thumbnailContentType,
           StorageClass: "STANDARD",
         }),
       );

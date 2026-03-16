@@ -41,6 +41,8 @@ const mockRotate = jest.fn();
 const mockResize = jest.fn();
 const mockToColorspace = jest.fn();
 const mockJpeg = jest.fn();
+const mockGif = jest.fn();
+const mockWebp = jest.fn();
 const mockWithMetadata = jest.fn();
 const mockToBuffer = jest.fn().mockResolvedValue(Buffer.from('thumbnail-data'));
 
@@ -55,6 +57,8 @@ jest.mock('sharp', () => {
     mockResize.mockReturnThis();
     mockToColorspace.mockReturnThis();
     mockJpeg.mockReturnThis();
+    mockGif.mockReturnThis();
+    mockWebp.mockReturnThis();
     mockWithMetadata.mockReturnThis();
     return {
       metadata: mockSharpMetadata,
@@ -62,6 +66,8 @@ jest.mock('sharp', () => {
       resize: mockResize,
       toColorspace: mockToColorspace,
       jpeg: mockJpeg,
+      gif: mockGif,
+      webp: mockWebp,
       withMetadata: mockWithMetadata,
       toBuffer: mockToBuffer,
     };
@@ -112,6 +118,8 @@ beforeEach(() => {
   mockResize.mockClear().mockReturnThis();
   mockToColorspace.mockClear().mockReturnThis();
   mockJpeg.mockClear().mockReturnThis();
+  mockGif.mockClear().mockReturnThis();
+  mockWebp.mockClear().mockReturnThis();
   mockWithMetadata.mockClear().mockReturnThis();
   mockToBuffer.mockClear().mockResolvedValue(Buffer.from('thumbnail-data'));
   mockSharpMetadata.mockResolvedValue({
@@ -418,6 +426,57 @@ describe('process-photo-metadata handler', () => {
         format: null,
       }),
     );
+  });
+
+  it('stores animated GIF thumbnail with .gif extension and image/gif ContentType', async () => {
+    mockSharpMetadata.mockResolvedValue({ width: 400, height: 300, format: 'gif', pages: 10, exif: undefined });
+    s3Mock.on(HeadObjectCommand).resolves({ ContentType: 'image/gif', LastModified: defaultLastModified });
+    s3Mock.on(GetObjectCommand).resolves({ Body: makeS3Body() as never });
+
+    const { handler } = await import('../src/handler');
+    await handler(makeSqsEvent('users/u1/photos/animation.gif'));
+
+    const putCalls = s3Mock.commandCalls(PutObjectCommand);
+    expect(putCalls[0].args[0].input).toMatchObject({
+      Key: 'users/u1/thumbnails/animation.gif',
+      ContentType: 'image/gif',
+    });
+    expect(mockSet).toHaveBeenCalledWith(expect.objectContaining({
+      thumbnailKey: 'users/u1/thumbnails/animation.gif',
+    }));
+  });
+
+  it('stores animated WebP thumbnail with .webp extension and image/webp ContentType', async () => {
+    mockSharpMetadata.mockResolvedValue({ width: 600, height: 400, format: 'webp', pages: 5, exif: undefined });
+    s3Mock.on(HeadObjectCommand).resolves({ ContentType: 'image/webp', LastModified: defaultLastModified });
+    s3Mock.on(GetObjectCommand).resolves({ Body: makeS3Body() as never });
+
+    const { handler } = await import('../src/handler');
+    await handler(makeSqsEvent('users/u1/photos/sticker.webp'));
+
+    const putCalls = s3Mock.commandCalls(PutObjectCommand);
+    expect(putCalls[0].args[0].input).toMatchObject({
+      Key: 'users/u1/thumbnails/sticker.webp',
+      ContentType: 'image/webp',
+    });
+    expect(mockSet).toHaveBeenCalledWith(expect.objectContaining({
+      thumbnailKey: 'users/u1/thumbnails/sticker.webp',
+    }));
+  });
+
+  it('stores static WebP thumbnail with .webp extension and image/webp ContentType', async () => {
+    mockSharpMetadata.mockResolvedValue({ width: 800, height: 600, format: 'webp', pages: 1, exif: undefined });
+    s3Mock.on(HeadObjectCommand).resolves({ ContentType: 'image/webp', LastModified: defaultLastModified });
+    s3Mock.on(GetObjectCommand).resolves({ Body: makeS3Body() as never });
+
+    const { handler } = await import('../src/handler');
+    await handler(makeSqsEvent('users/u1/photos/photo.webp'));
+
+    const putCalls = s3Mock.commandCalls(PutObjectCommand);
+    expect(putCalls[0].args[0].input).toMatchObject({
+      Key: 'users/u1/thumbnails/photo.webp',
+      ContentType: 'image/webp',
+    });
   });
 
   it('prefers EXIF DateTimeOriginal over filename date', async () => {
