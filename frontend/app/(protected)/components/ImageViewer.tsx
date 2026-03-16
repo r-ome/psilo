@@ -97,17 +97,41 @@ export default function ImageViewer({
                   key={photo.id}
                   className="flex items-center justify-center p-8 pl-8! h-full"
                 >
-                  {photo.contentType?.startsWith("video/") &&
-                  photo.signedUrl ? (
-                    <video
-                      controls
-                      className="max-h-[calc(90vh-5rem)] max-w-full w-auto mx-auto"
-                    >
-                      <source
-                        src={photo.signedUrl}
-                        type={photo.contentType || undefined}
-                      />
-                    </video>
+                  {photo.contentType?.startsWith("video/") ? (
+                    photo.storageClass === "GLACIER" ? (
+                      photo.previewUrl ? (
+                        <video
+                          controls
+                          className="max-h-[calc(90vh-5rem)] max-w-full w-auto mx-auto"
+                        >
+                          <source src={photo.previewUrl} type="video/mp4" />
+                        </video>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center text-white/50 gap-2">
+                          <span>Video archived in Glacier</span>
+                          <span className="text-sm">Preview unavailable</span>
+                        </div>
+                      )
+                    ) : photo.signedUrl ? (
+                      <video
+                        controls
+                        className="max-h-[calc(90vh-5rem)] max-w-full w-auto mx-auto"
+                      >
+                        <source
+                          src={photo.signedUrl}
+                          type={photo.contentType || undefined}
+                        />
+                      </video>
+                    ) : null
+                  ) : photo.storageClass !== "GLACIER" && photo.signedUrl ? (
+                    <Image
+                      src={photo.signedUrl}
+                      alt={photo.filename}
+                      width={photo.width ?? 1200}
+                      height={photo.height ?? 800}
+                      className="max-h-[calc(90vh-5rem)] max-w-full w-auto h-auto object-contain mx-auto xl:pt-4"
+                      unoptimized
+                    />
                   ) : photo.thumbnailUrl ? (
                     <Image
                       src={photo.thumbnailUrl}
