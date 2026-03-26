@@ -78,25 +78,27 @@ async function main() {
     await upload.done();
 
     // Generate presigned URL (1-hour expiry)
+    const RETENTION_SECONDS = 7 * 24 * 3600;
     const presignedUrl = await getSignedUrl(
       s3,
       new GetObjectCommand({ Bucket: ZIP_BUCKET_NAME, Key: zipKey }),
-      { expiresIn: 3600 },
+      { expiresIn: RETENTION_SECONDS },
     );
 
-    // Update successful requests with the presigned URL
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + RETENTION_SECONDS * 1000);
+
+    // Update successful requests with the presigned URL and expiry
     const successfulIds = requests
       .filter((r) => !failedIds.includes(r.id))
       .map((r) => r.id);
     if (successfulIds.length > 0) {
       await db
         .update(retrievalRequests)
-        .set({ retrievalLink: presignedUrl })
+        .set({ retrievalLink: presignedUrl, expiresAt })
         .where(inArray(retrievalRequests.id, successfulIds));
     }
 
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + 24 * 3600 * 1000);
     const finalStatus = failedIds.length > 0 ? "PARTIAL_FAILURE" : "COMPLETED";
 
     await db

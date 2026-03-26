@@ -6,7 +6,7 @@ import {
   AdminGetUserCommand,
 } from "@aws-sdk/client-cognito-identity-provider";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, not } from "drizzle-orm";
 import { createDb } from "../../shared/db";
 import { photos, users, retrievalBatches, retrievalRequests } from "../../shared/schema";
 
@@ -112,13 +112,34 @@ export const handler = async (
   const now = new Date();
   const expiresAt = new Date(now.getTime() + RESTORE_RETENTION_DAYS * 24 * 3600 * 1000);
 
+  // Only update SINGLE-batch requests (email flow owns SINGLE; zip flow owns ALBUM/MANUAL)
+  const singleBatchIds = (
+    await db
+      .select({ id: retrievalBatches.id })
+      .from(retrievalBatches)
+      .innerJoin(retrievalRequests, eq(retrievalRequests.batchId, retrievalBatches.id))
+      .where(
+        and(
+          eq(retrievalRequests.s3Key, s3Key),
+          eq(retrievalBatches.batchType, "SINGLE"),
+          not(inArray(retrievalBatches.status, ["EXPIRED", "FAILED"])),
+        ),
+      )
+  ).map((r) => r.id);
+
+  if (singleBatchIds.length === 0) {
+    console.log(`No SINGLE batch found for key: ${s3Key}, skipping email flow`);
+    return;
+  }
+
   const updatedRequests = await db
     .update(retrievalRequests)
     .set({ status: "AVAILABLE", availableAt: now, expiresAt, retrievalLink: downloadUrl })
     .where(
       and(
         eq(retrievalRequests.s3Key, s3Key),
-        eq(retrievalRequests.status, "PENDING"),
+        eq(retrievalRequests.status, "IN_PROGRESS"),
+        inArray(retrievalRequests.batchId, singleBatchIds),
       ),
     )
     .returning();
@@ -135,18 +156,18 @@ export const handler = async (
     const someAvailable = allRequests.some((r) => r.status === "AVAILABLE");
     const newBatchStatus = allAvailable ? "AVAILABLE" : someAvailable ? "PARTIAL" : "PENDING";
 
-    // Only update batches that are still in the email flow (PENDING/PARTIAL/AVAILABLE).
-    // Batches in IN_PROGRESS/ZIPPING/COMPLETED/FAILED are owned by the zip flow.
+    // These are already scoped to SINGLE batches, so update from any active status.
+    // (IN_PROGRESS is the normal state after initiateBatchRetrieval runs.)
     await db
       .update(retrievalBatches)
       .set({
         status: newBatchStatus,
-        ...(allAvailable ? { availableAt: now } : {}),
+        ...(allAvailable ? { availableAt: now, expiresAt } : {}),
       })
       .where(
         and(
           eq(retrievalBatches.id, batchId),
-          inArray(retrievalBatches.status, ["PENDING", "PARTIAL", "AVAILABLE"]),
+          inArray(retrievalBatches.status, ["PENDING", "IN_PROGRESS", "PARTIAL", "AVAILABLE"]),
         ),
       );
   }

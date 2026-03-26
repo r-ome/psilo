@@ -26,11 +26,11 @@ export class ZipPipelineConstruct extends Construct {
 
     const { bucket, database } = props;
 
-    // S3 bucket for zip files — objects expire after 24h
+    // S3 bucket for zip files — objects expire after 7 days (matches Glacier restore retention)
     this.zipBucket = new s3.Bucket(this, "ZipBucket", {
       lifecycleRules: [
         {
-          expiration: cdk.Duration.days(1),
+          expiration: cdk.Duration.days(7),
           enabled: true,
         },
       ],

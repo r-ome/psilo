@@ -19,7 +19,11 @@ import { Button } from "@/app/components/ui/button";
 
 const date_format = "MMM d, yyyy h:mm aaa";
 
-const IN_FLIGHT_STATUSES: RetrievalBatch["status"][] = ["PENDING", "IN_PROGRESS", "ZIPPING"];
+const IN_FLIGHT_STATUSES: RetrievalBatch["status"][] = [
+  "PENDING",
+  "IN_PROGRESS",
+  "ZIPPING",
+];
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
@@ -33,42 +37,54 @@ const STATUS_BADGE: Record<
   RetrievalBatch["status"],
   { label: string; className: string }
 > = {
-  PENDING:         { label: "Pending",         className: "bg-yellow-100 text-yellow-800" },
-  IN_PROGRESS:     { label: "Restoring",       className: "bg-blue-100 text-blue-800" },
-  ZIPPING:         { label: "Zipping",         className: "bg-blue-100 text-blue-800" },
-  COMPLETED:       { label: "Ready",           className: "bg-green-100 text-green-800" },
-  PARTIAL_FAILURE: { label: "Partial",         className: "bg-orange-100 text-orange-800" },
-  PARTIAL:         { label: "Partial",         className: "bg-orange-100 text-orange-800" },
-  AVAILABLE:       { label: "Available",       className: "bg-green-100 text-green-800" },
-  EXPIRED:         { label: "Expired",         className: "bg-gray-100 text-gray-600" },
-  FAILED:          { label: "Failed",          className: "bg-red-100 text-red-800" },
+  PENDING: { label: "Pending", className: "bg-yellow-100 text-yellow-800" },
+  IN_PROGRESS: { label: "Restoring", className: "bg-blue-100 text-blue-800" },
+  ZIPPING: { label: "Zipping", className: "bg-blue-100 text-blue-800" },
+  COMPLETED: { label: "Ready", className: "bg-green-100 text-green-800" },
+  PARTIAL_FAILURE: {
+    label: "Partial",
+    className: "bg-orange-100 text-orange-800",
+  },
+  PARTIAL: { label: "Partial", className: "bg-orange-100 text-orange-800" },
+  AVAILABLE: { label: "Available", className: "bg-green-100 text-green-800" },
+  EXPIRED: { label: "Expired", className: "bg-gray-100 text-gray-600" },
+  FAILED: { label: "Failed", className: "bg-red-100 text-red-800" },
 };
 
 const REQUEST_STATUS_BADGE: Record<
   RetrievalRequest["status"],
   { label: string; className: string }
 > = {
-  PENDING:     { label: "Pending",   className: "bg-yellow-100 text-yellow-800" },
+  PENDING: { label: "Pending", className: "bg-yellow-100 text-yellow-800" },
   IN_PROGRESS: { label: "Restoring", className: "bg-blue-100 text-blue-800" },
-  READY:       { label: "Ready",     className: "bg-green-100 text-green-800" },
-  AVAILABLE:   { label: "Available", className: "bg-green-100 text-green-800" },
-  EXPIRED:     { label: "Expired",   className: "bg-gray-100 text-gray-600" },
-  FAILED:      { label: "Failed",    className: "bg-red-100 text-red-800" },
+  READY: { label: "Ready", className: "bg-green-100 text-green-800" },
+  AVAILABLE: { label: "Available", className: "bg-green-100 text-green-800" },
+  EXPIRED: { label: "Expired", className: "bg-gray-100 text-gray-600" },
+  FAILED: { label: "Failed", className: "bg-red-100 text-red-800" },
 };
 
 function StatusBadge({ status }: { status: RetrievalBatch["status"] }) {
   const { label, className } = STATUS_BADGE[status] ?? STATUS_BADGE.PENDING;
   return (
-    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${className}`}>
+    <span
+      className={`text-xs font-medium px-2 py-0.5 rounded-full ${className}`}
+    >
       {label}
     </span>
   );
 }
 
-function RequestStatusBadge({ status }: { status: RetrievalRequest["status"] }) {
-  const { label, className } = REQUEST_STATUS_BADGE[status] ?? REQUEST_STATUS_BADGE.PENDING;
+function RequestStatusBadge({
+  status,
+}: {
+  status: RetrievalRequest["status"];
+}) {
+  const { label, className } =
+    REQUEST_STATUS_BADGE[status] ?? REQUEST_STATUS_BADGE.PENDING;
   return (
-    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${className}`}>
+    <span
+      className={`text-xs font-medium px-2 py-0.5 rounded-full ${className}`}
+    >
       {label}
     </span>
   );
@@ -98,7 +114,8 @@ function BatchDetail({
   const [requests, setRequests] = useState<RetrievalRequest[] | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const isZipFlow = batchStatus === "COMPLETED" || batchStatus === "PARTIAL_FAILURE";
+  const isZipFlow =
+    batchStatus === "COMPLETED" || batchStatus === "PARTIAL_FAILURE";
 
   useEffect(() => {
     retrievalService
@@ -117,24 +134,28 @@ function BatchDetail({
   }
 
   if (!requests || requests.length === 0) {
-    return <p className="text-sm text-muted-foreground py-2">No files found.</p>;
+    return (
+      <p className="text-sm text-muted-foreground py-2">No files found.</p>
+    );
   }
 
   const zipUrl = isZipFlow
-    ? requests.find((r) => r.retrievalLink)?.retrievalLink ?? null
+    ? (requests.find((r) => r.retrievalLink)?.retrievalLink ?? null)
     : null;
 
   return (
     <div className="space-y-3">
       {isZipFlow && (
-        <div className="flex items-center gap-3 p-3 rounded-lg bg-green-50 border border-green-200">
+        <div className="flex my-3 items-center gap-3 p-3 rounded-lg bg-green-50 border border-green-200">
           <div className="flex-1">
             <p className="text-sm font-medium text-green-900">
               {batchStatus === "COMPLETED"
                 ? "Your zip file is ready to download."
                 : "Zip is ready — some files failed to include."}
             </p>
-            <p className="text-xs text-green-700 mt-0.5">Link expires in 1 hour.</p>
+            <p className="text-xs text-green-700 mt-0.5">
+              Link expires in 7 days.
+            </p>
           </div>
           {zipUrl ? (
             <Button asChild size="sm" className="shrink-0">
@@ -149,20 +170,22 @@ function BatchDetail({
         </div>
       )}
 
-      <table className="w-full text-sm">
+      <table className="w-full text-sm my-4">
         <thead>
           <tr className="text-left text-muted-foreground border-b">
             <th className="pb-1 pr-4 font-medium">File</th>
             <th className="pb-1 pr-4 font-medium">Size</th>
             <th className="pb-1 pr-4 font-medium">Status</th>
             <th className="pb-1 pr-4 font-medium">Available At</th>
-            <th className="pb-1 pr-4 font-medium">Expires</th>
             {!isZipFlow && <th className="pb-1 font-medium"></th>}
           </tr>
         </thead>
         <tbody>
           {requests.map((req) => (
-            <tr key={req.id} className="border-b last:border-0 hover:bg-gray-100">
+            <tr
+              key={req.id}
+              className="border-b last:border-0 hover:bg-gray-100"
+            >
               <td className="py-1.5 pr-4 max-w-50 truncate">
                 {req.filename ?? req.s3Key.split("/").pop()}
               </td>
@@ -173,14 +196,13 @@ function BatchDetail({
                 <RequestStatusBadge status={req.status} />
               </td>
               <td className="py-1.5 pr-4 text-muted-foreground">
-                {req.availableAt ? formatDate(req.availableAt, date_format) : "—"}
-              </td>
-              <td className="py-1.5 pr-4">
-                <ExpiresIn expiresAt={req.expiresAt} />
+                {req.availableAt
+                  ? formatDate(req.availableAt, date_format)
+                  : "—"}
               </td>
               {!isZipFlow && (
                 <td className="py-1.5">
-                  {req.retrievalLink && (
+                  {req.retrievalLink && req.status !== "EXPIRED" ? (
                     <a
                       href={req.retrievalLink}
                       download
@@ -188,7 +210,11 @@ function BatchDetail({
                     >
                       Download
                     </a>
-                  )}
+                  ) : req.retrievalLink ? (
+                    <span className="text-xs text-muted-foreground">
+                      Expired
+                    </span>
+                  ) : null}
                 </td>
               )}
             </tr>
@@ -215,7 +241,9 @@ export default function RestoreRequestsPage() {
   // Poll while any batch is still in-flight
   useEffect(() => {
     if (!batches) return;
-    const hasInFlight = batches.some((b) => IN_FLIGHT_STATUSES.includes(b.status));
+    const hasInFlight = batches.some((b) =>
+      IN_FLIGHT_STATUSES.includes(b.status),
+    );
     if (!hasInFlight) return;
     const interval = setInterval(fetchBatches, 5000);
     return () => clearInterval(interval);
@@ -234,7 +262,9 @@ export default function RestoreRequestsPage() {
       <h1 className="text-2xl font-bold">Restore Requests</h1>
 
       {batches.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No restore requests yet.</p>
+        <p className="text-sm text-muted-foreground">
+          No restore requests yet.
+        </p>
       ) : (
         <Accordion type="single" collapsible className="w-full px-30">
           {batches.map((batch) => (
@@ -253,10 +283,16 @@ export default function RestoreRequestsPage() {
                   )}
                   <span className="text-muted-foreground">
                     {batch.totalFiles} file{batch.totalFiles !== 1 ? "s" : ""}
-                    {batch.totalSize > 0 && ` · ${formatBytes(batch.totalSize)}`}
+                    {batch.totalSize > 0 &&
+                      ` · ${formatBytes(batch.totalSize)}`}
                   </span>
-                  <span className="text-muted-foreground ml-auto text-xs">
-                    {batch.requestedAt ? formatDate(batch.requestedAt, date_format) : ""}
+                  <span className="text-xs ml-auto">
+                    <ExpiresIn expiresAt={batch.expiresAt} />
+                  </span>
+                  <span className="text-muted-foreground text-xs">
+                    {batch.requestedAt
+                      ? formatDate(batch.requestedAt, date_format)
+                      : ""}
                   </span>
                 </div>
               </AccordionTrigger>

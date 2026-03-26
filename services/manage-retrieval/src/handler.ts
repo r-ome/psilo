@@ -14,6 +14,11 @@ function respond(statusCode: number, body: unknown): APIGatewayProxyResultV2 {
   };
 }
 
+function effectiveStatus(status: string, expiresAt: Date | null): string {
+  if (expiresAt && expiresAt < new Date()) return "EXPIRED";
+  return status;
+}
+
 export const handler = async (
   event: APIGatewayProxyEventV2WithJWTAuthorizer,
 ): Promise<APIGatewayProxyResultV2> => {
@@ -28,7 +33,12 @@ export const handler = async (
       .where(eq(retrievalBatches.userId, sub))
       .orderBy(desc(retrievalBatches.requestedAt));
 
-    return respond(200, { batches });
+    const enrichedBatches = batches.map((b) => ({
+      ...b,
+      status: effectiveStatus(b.status, b.expiresAt),
+    }));
+
+    return respond(200, { batches: enrichedBatches });
   }
 
   if (routeKey === "GET /retrieval/batches/{batchId}") {
@@ -62,7 +72,13 @@ export const handler = async (
       .leftJoin(photos, eq(retrievalRequests.photoId, photos.id))
       .where(eq(retrievalRequests.batchId, batchId));
 
-    return respond(200, { batch, requests });
+    const enrichedBatch = { ...batch, status: effectiveStatus(batch.status, batch.expiresAt) };
+    const enrichedRequests = requests.map((r) => ({
+      ...r,
+      status: effectiveStatus(r.status, r.expiresAt),
+    }));
+
+    return respond(200, { batch: enrichedBatch, requests: enrichedRequests });
   }
 
   return respond(404, { message: "Not found" });
