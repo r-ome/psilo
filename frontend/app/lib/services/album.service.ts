@@ -6,7 +6,7 @@ export interface Album {
   userId: string;
   name: string;
   createdAt: string | null;
-  coverUrl: string | null;
+  coverUrls: string[];
 }
 
 export interface AlbumWithPhotos extends Album {

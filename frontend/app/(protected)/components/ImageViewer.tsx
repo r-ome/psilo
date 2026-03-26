@@ -70,12 +70,11 @@ export default function ImageViewer({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "ArrowLeft") api?.scrollPrev();
       else if (e.key === "ArrowRight") api?.scrollNext();
-      else if (e.key === "Escape") onClose();
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [api, initialIndex, onClose]);
+  }, [api, initialIndex]);
 
   const currentPhoto = photos[currentIndex];
 
@@ -86,7 +85,10 @@ export default function ImageViewer({
         if (!open) onClose();
       }}
     >
-      <DialogContent className="max-w-[90vw] sm:max-w-[90vw] w-[90vw] h-[90vh] p-0 bg-black border-0 flex flex-col overflow-hidden text-white">
+      <DialogContent
+        className="max-w-[90vw] sm:max-w-[90vw] w-[90vw] h-[90vh] p-0 bg-black border-0 flex flex-col overflow-hidden text-white"
+        onEscapeKeyDown={() => onClose()}
+      >
         <DialogTitle className="sr-only">Image viewer</DialogTitle>
 
         <div className="flex-1 min-h-0 relative">

@@ -72,16 +72,19 @@ export const handler = async (
         ? cfSignedUrl(key, privateKey!)
         : getSignedUrl(s3, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: key }), { expiresIn: 3600 });
 
-    const coverMap = new Map<string, string>();
+    const MAX_COVERS = 4;
+    const coverMap = new Map<string, string[]>();
     for (const row of coverRows) {
-      if (!coverMap.has(row.albumId) && row.thumbnailKey) {
-        coverMap.set(row.albumId, await signUrl(row.thumbnailKey));
-      }
+      if (!row.thumbnailKey) continue;
+      const urls = coverMap.get(row.albumId) ?? [];
+      if (urls.length >= MAX_COVERS) continue;
+      urls.push(await signUrl(row.thumbnailKey));
+      coverMap.set(row.albumId, urls);
     }
 
     const result = userAlbums.map((album) => ({
       ...album,
-      coverUrl: coverMap.get(album.id) ?? null,
+      coverUrls: coverMap.get(album.id) ?? [],
     }));
 
     return respond(200, result);

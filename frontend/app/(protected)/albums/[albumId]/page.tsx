@@ -12,7 +12,15 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/app/components/ui/dialog";
-import { Trash2, Pencil, Plus, Check, CheckSquare, Square, Download, Loader2Icon, CalendarDays, ArchiveRestore } from "lucide-react";
+import { Trash2, Pencil, Plus, Check, Download, Loader2Icon, CalendarDays, ArchiveRestore, ChevronLeft, MoreHorizontal } from "lucide-react";
+import Link from "next/link";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/app/components/ui/dropdown-menu";
 import {
   albumService,
   Album,
@@ -51,7 +59,6 @@ export default function AlbumDetailPage({
   const [bulkRemovePending, setBulkRemovePending] = useState(false);
   const [albumDeletePending, setAlbumDeletePending] = useState(false);
   const [albumDownloadOpen, setAlbumDownloadOpen] = useState(false);
-  const [selectMode, setSelectMode] = useState(false);
   const [pickerNextCursor, setPickerNextCursor] = useState<string | null>(null);
   const [isLoadingMorePicker, setIsLoadingMorePicker] = useState(false);
   const [isAddingPhotos, setIsAddingPhotos] = useState(false);
@@ -222,11 +229,6 @@ export default function AlbumDetailPage({
     }
   };
 
-  const handleToggleSelectMode = () => {
-    setSelectMode((prev) => !prev);
-    if (selectMode) setSelectedIds(new Set());
-  };
-
   const handleUpdateConfirm = async (takenAt: string | null) => {
     if (!photoToUpdate) return;
     const key = photoToUpdate.s3Key;
@@ -388,56 +390,15 @@ export default function AlbumDetailPage({
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
+          <Link
+            href="/albums"
+            className="inline-flex items-center text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ChevronLeft className="size-5" />
+          </Link>
           <h1 className="text-2xl font-bold">{album.name}</h1>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setAlbumToEdit(album)}
-          >
-            <Pencil className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setAlbumDeletePending(true)}
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
         </div>
         <div className="flex items-center gap-2">
-          {albumPhotos.length > 0 && (() => {
-            const hasGlacier = albumPhotos.some((p) => p.storageClass === "GLACIER");
-            if (!hasGlacier) {
-              return (
-                <Button variant="outline" size="sm" onClick={() => setAlbumDownloadOpen(true)}>
-                  <Download className="h-4 w-4 mr-1" />
-                  Download Album
-                </Button>
-              );
-            }
-            if (albumBatch && BATCH_READY.includes(albumBatch.status)) {
-              return (
-                <Button variant="outline" size="sm" onClick={() => router.push("/restore-requests")}>
-                  <Download className="h-4 w-4 mr-1" />
-                  Download
-                </Button>
-              );
-            }
-            if (albumBatch && BATCH_IN_FLIGHT.includes(albumBatch.status)) {
-              return (
-                <Button variant="outline" size="sm" disabled>
-                  <Loader2Icon className="h-4 w-4 mr-1 animate-spin" />
-                  Restoring…
-                </Button>
-              );
-            }
-            return (
-              <Button variant="outline" size="sm" onClick={() => setRestoreAlbumOpen(true)}>
-                <ArchiveRestore className="h-4 w-4 mr-1" />
-                Restore Album
-              </Button>
-            );
-          })()}
           <Button
             variant="outline"
             size="sm"
@@ -449,25 +410,60 @@ export default function AlbumDetailPage({
             <Plus className="h-4 w-4 mr-1" />
             Add Photos
           </Button>
-          {albumPhotos.length > 0 && (
-            <Button
-              variant={selectMode ? "default" : "outline"}
-              size="sm"
-              onClick={handleToggleSelectMode}
-            >
-              {selectMode ? (
-                <>
-                  <CheckSquare className="h-4 w-4 mr-2" />
-                  Done
-                </>
-              ) : (
-                <>
-                  <Square className="h-4 w-4 mr-2" />
-                  Select
-                </>
-              )}
-            </Button>
-          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon" className="size-8">
+                <MoreHorizontal className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => setAlbumToEdit(album)}>
+                <Pencil className="mr-2 size-4" />
+                Rename
+              </DropdownMenuItem>
+              {albumPhotos.length > 0 && (() => {
+                const hasGlacier = albumPhotos.some((p) => p.storageClass === "GLACIER");
+                if (!hasGlacier) {
+                  return (
+                    <DropdownMenuItem onClick={() => setAlbumDownloadOpen(true)}>
+                      <Download className="mr-2 size-4" />
+                      Download Album
+                    </DropdownMenuItem>
+                  );
+                }
+                if (albumBatch && BATCH_READY.includes(albumBatch.status)) {
+                  return (
+                    <DropdownMenuItem onClick={() => router.push("/restore-requests")}>
+                      <Download className="mr-2 size-4" />
+                      Download
+                    </DropdownMenuItem>
+                  );
+                }
+                if (albumBatch && BATCH_IN_FLIGHT.includes(albumBatch.status)) {
+                  return (
+                    <DropdownMenuItem disabled>
+                      <Loader2Icon className="mr-2 size-4 animate-spin" />
+                      Restoring…
+                    </DropdownMenuItem>
+                  );
+                }
+                return (
+                  <DropdownMenuItem onClick={() => setRestoreAlbumOpen(true)}>
+                    <ArchiveRestore className="mr-2 size-4" />
+                    Restore Album
+                  </DropdownMenuItem>
+                );
+              })()}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="text-destructive"
+                onClick={() => setAlbumDeletePending(true)}
+              >
+                <Trash2 className="mr-2 size-4" />
+                Delete Album
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -595,7 +591,7 @@ export default function AlbumDetailPage({
             onToggleSelect={handleToggleSelect}
             onDeleteRequest={setPhotoToRemove}
             onPhotoClick={setViewerIndex}
-            selectMode={selectMode}
+
           />
           <div ref={albumSentinelRef} className="h-4" />
           {isLoadingMoreAlbum && (

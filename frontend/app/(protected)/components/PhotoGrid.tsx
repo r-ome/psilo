@@ -8,9 +8,17 @@ import {
   Trash2,
   Loader2,
   AlertCircle,
-  Search,
+  MoreHorizontal,
+  Play,
 } from "lucide-react";
 import { Button } from "@/app/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/app/components/ui/dropdown-menu";
 import { GroupedPhotosByDate, Photo } from "@/app/lib/services/photo.service";
 import { cn, formatDate } from "@/app/lib/utils";
 
@@ -22,7 +30,7 @@ interface PhotoGridProps {
   onPhotoClick: (index: number) => void;
   onRetry?: (photo: Photo) => void;
   onUpdateRequest?: (photo: Photo) => void;
-  selectMode?: boolean;
+  viewMode?: "grid" | "large";
 }
 
 function groupPhotosByDate(photos: Photo[]): GroupedPhotosByDate[] {
@@ -45,6 +53,11 @@ function groupPhotosByDate(photos: Photo[]): GroupedPhotosByDate[] {
     .map(([date, photos]) => ({ date, photos }));
 }
 
+const GRID_CLASSES = {
+  grid: "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6",
+  large: "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4",
+};
+
 export default function PhotoGrid({
   photos,
   selectedIds,
@@ -52,19 +65,19 @@ export default function PhotoGrid({
   onDeleteRequest,
   onPhotoClick,
   onRetry,
-  selectMode = false,
+  viewMode = "grid",
 }: PhotoGridProps) {
   const groupedPhotos = useMemo(() => groupPhotosByDate(photos), [photos]);
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-6">
       {groupedPhotos.map((item) => {
         return (
-          <div className="flex flex-col gap-4" key={item.date}>
-            <div className="font-semibold">
+          <div className="flex flex-col gap-3" key={item.date}>
+            <h2 className="text-sm font-medium text-muted-foreground">
               {formatDate(item.date, "E MMM d, yyyy")}
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-1">
+            </h2>
+            <div className={cn("grid gap-2", GRID_CLASSES[viewMode])}>
               {item.photos.map((photo) => {
                 const isSelected = selectedIds.has(photo.id);
                 const isCompleted = photo.status === "completed";
@@ -77,9 +90,19 @@ export default function PhotoGrid({
                   <div
                     key={photo.id}
                     className={cn(
-                      "relative group border overflow-hidden",
-                      isSelected ? "" : "border-border",
+                      "group relative aspect-square cursor-pointer overflow-hidden rounded-lg bg-secondary transition-all",
+                      isSelected &&
+                        "ring-2 ring-primary ring-offset-2 ring-offset-background scale-[0.96]",
                     )}
+                    onClick={() => {
+                      if (!isCompleted) return;
+                      onPhotoClick(photos.indexOf(photo));
+                    }}
+                    onContextMenu={(e) => {
+                      if (!isCompleted) return;
+                      e.preventDefault();
+                      onToggleSelect(photo);
+                    }}
                     onMouseEnter={(e) => {
                       if (!isVideo) return;
                       const video = e.currentTarget.querySelector("video");
@@ -88,143 +111,149 @@ export default function PhotoGrid({
                     onMouseLeave={(e) => {
                       if (!isVideo) return;
                       const video = e.currentTarget.querySelector("video");
-                      if (video) { video.pause(); video.currentTime = 0; }
+                      if (video) {
+                        video.pause();
+                        video.currentTime = 0;
+                      }
                     }}
                   >
-                    <div
-                      className={cn(
-                        "relative aspect-square bg-muted transition-transform duration-200",
-                        isSelected && isCompleted ? "scale-90" : "",
-                        isCompleted && !selectMode
-                          ? "cursor-pointer"
-                          : isCompleted && selectMode
-                            ? "cursor-pointer"
-                            : "cursor-default",
-                      )}
-                      onClick={() => {
-                        if (!isCompleted) return;
-                        if (selectMode) {
-                          onToggleSelect(photo);
-                        } else {
-                          onPhotoClick(photos.indexOf(photo));
-                        }
-                      }}
-                    >
-                      {isCompleted ? (
-                        <>
-                          {isVideo ? (
-                            photo.thumbnailUrl ? (
-                              <>
-                                <Image
-                                  src={photo.thumbnailUrl}
-                                  alt={photo.filename}
-                                  fill
-                                  className="object-cover"
-                                  sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 16vw"
-                                />
-                                {photo.previewUrl && (
-                                  <video
-                                    muted
-                                    loop
-                                    playsInline
-                                    preload="metadata"
-                                    className="absolute inset-0 w-full h-full object-cover opacity-0 group-hover:opacity-100 transition-opacity duration-200"
-                                  >
-                                    <source src={photo.previewUrl} type="video/mp4" />
-                                  </video>
-                                )}
-                              </>
-                            ) : null
-                          ) : photo.thumbnailUrl ? (
-                            <Image
-                              src={photo.thumbnailUrl!}
-                              alt={photo.filename}
-                              fill
-                              className="object-cover"
-                              sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 16vw"
-                            />
-                          ) : null}
-                          {!selectMode ? (
-                            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/20 transition-opacity">
-                              <Fullscreen className="h-5 w-5 text-white drop-shadow" />
-                            </div>
-                          ) : null}
-                        </>
-                      ) : isProcessing ? (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">
-                          <Loader2 className="h-6 w-6 text-muted-foreground animate-spin" />
-                          <span className="text-xs text-muted-foreground capitalize">
-                            {photo.status}
-                          </span>
+                    {isCompleted ? (
+                      <>
+                        {isVideo ? (
+                          photo.thumbnailUrl ? (
+                            <>
+                              <Image
+                                src={photo.thumbnailUrl}
+                                alt={photo.filename}
+                                fill
+                                className="object-cover transition-transform group-hover:scale-105"
+                                sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, (max-width: 1280px) 20vw, 16vw"
+                              />
+                              {photo.previewUrl && (
+                                <video
+                                  muted
+                                  loop
+                                  playsInline
+                                  preload="metadata"
+                                  className="absolute inset-0 w-full h-full object-cover opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                                >
+                                  <source
+                                    src={photo.previewUrl}
+                                    type="video/mp4"
+                                  />
+                                </video>
+                              )}
+                            </>
+                          ) : null
+                        ) : photo.thumbnailUrl ? (
+                          <Image
+                            src={photo.thumbnailUrl!}
+                            alt={photo.filename}
+                            fill
+                            className="object-cover transition-transform group-hover:scale-105"
+                            sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, (max-width: 1280px) 20vw, 16vw"
+                          />
+                        ) : null}
+
+                        {/* Fullscreen overlay */}
+                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/20 transition-opacity">
+                          <Fullscreen className="h-5 w-5 text-white drop-shadow" />
                         </div>
-                      ) : isFailed ? (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">
-                          <AlertCircle className="h-6 w-6 text-destructive" />
-                          <span className="text-xs text-destructive">
-                            Failed
-                          </span>
-                          {onRetry && (
-                            <button
-                              className="text-xs underline text-muted-foreground hover:text-foreground hover:cursor-pointer"
+                      </>
+                    ) : isProcessing ? (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">
+                        <Loader2 className="h-6 w-6 text-muted-foreground animate-spin" />
+                        <span className="text-xs text-muted-foreground capitalize">
+                          {photo.status}
+                        </span>
+                      </div>
+                    ) : isFailed ? (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">
+                        <AlertCircle className="h-6 w-6 text-destructive" />
+                        <span className="text-xs text-destructive">Failed</span>
+                        {onRetry && (
+                          <button
+                            className="text-xs underline text-muted-foreground hover:text-foreground hover:cursor-pointer"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onRetry(photo);
+                            }}
+                          >
+                            Retry
+                          </button>
+                        )}
+                      </div>
+                    ) : null}
+
+                    {/* Selection checkbox */}
+                    {isCompleted && (
+                      <div
+                        className={cn(
+                          "absolute left-2 top-2 flex size-6 items-center justify-center rounded-full border-2 transition-all z-10 cursor-pointer",
+                          isSelected
+                            ? "border-primary bg-primary"
+                            : "border-foreground/50 bg-background/50 opacity-0 group-hover:opacity-100",
+                        )}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onToggleSelect(photo);
+                        }}
+                      >
+                        {isSelected && (
+                          <Check className="size-4 text-primary-foreground" />
+                        )}
+                      </div>
+                    )}
+
+                    {/* Video indicator */}
+                    {isCompleted && isVideo && (
+                      <div className="absolute bottom-2 left-2 flex items-center gap-1 rounded bg-background/80 px-1.5 py-0.5 text-xs font-medium">
+                        <Play className="size-3 fill-current" />
+                        Video
+                      </div>
+                    )}
+
+                    {/* Actions dropdown menu */}
+                    {isCompleted && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="absolute right-2 top-2 size-7 opacity-0 group-hover:opacity-100 bg-background/50 hover:bg-background/80"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <MoreHorizontal className="size-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onPhotoClick(photos.indexOf(photo));
+                            }}
+                          >
+                            <Fullscreen className="mr-2 size-4" />
+                            View
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          {onDeleteRequest && (
+                            <DropdownMenuItem
+                              className="text-destructive"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                onRetry(photo);
+                                onDeleteRequest(photo);
                               }}
                             >
-                              Retry
-                            </button>
+                              <Trash2 className="mr-2 size-4" />
+                              Delete
+                            </DropdownMenuItem>
                           )}
-                        </div>
-                      ) : null}
-                      {isCompleted && (
-                        <button
-                          className={cn(
-                            "absolute top-1 left-1 h-5 w-5 rounded-full flex items-center justify-center transition-opacity z-10 cursor-pointer",
-                            selectMode
-                              ? isSelected
-                                ? "opacity-100 bg-primary"
-                                : "opacity-100 bg-black/40 border border-white"
-                              : isSelected
-                                ? "opacity-100 bg-primary"
-                                : "opacity-0 group-hover:opacity-100 bg-black/40 border border-white",
-                          )}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onToggleSelect(photo);
-                          }}
-                        >
-                          {isSelected && (
-                            <Check className="h-3 w-3 text-white" />
-                          )}
-                        </button>
-                      )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
 
-                      {isCompleted && onDeleteRequest && (
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 bg-background/80 hover:text-red-500"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onDeleteRequest(photo);
-                          }}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      )}
 
-                      {selectMode && isCompleted && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onPhotoClick(photos.indexOf(photo));
-                          }}
-                          className="absolute bottom-2 right-1 -translate-x-1/2 bg-black/60 rounded-full p-1 text-white opacity-0 group-hover:opacity-100 transition-opacity z-10 cursor-pointer"
-                        >
-                          <Search className="w-3 h-3" />
-                        </button>
-                      )}
-                    </div>
                   </div>
                 );
               })}

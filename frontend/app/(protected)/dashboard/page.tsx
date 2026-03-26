@@ -10,12 +10,17 @@ import {
 } from "@/app/components/ui/dialog";
 import { Button } from "@/app/components/ui/button";
 import {
+  Tabs,
+  TabsList,
+  TabsTrigger,
+} from "@/app/components/ui/tabs";
+import {
   CalendarDays,
   Download,
+  Grid3X3,
+  LayoutGrid,
   Trash2,
   Upload,
-  CheckSquare,
-  Square,
   Loader2Icon,
 } from "lucide-react";
 import FileDropZone from "@/app/(protected)/components/FileDropZone";
@@ -40,7 +45,7 @@ export default function Page() {
   const [photoToUpdate, setPhotoToUpdate] = useState<Photo | null>(null);
   const [bulkUpdatePending, setBulkUpdatePending] = useState(false);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
-  const [selectMode, setSelectMode] = useState(false);
+  const [viewMode, setViewMode] = useState<"grid" | "large">("grid");
   const [storageSize, setStorageSize] = useState<{
     standardSize: number;
     glacierSize: number;
@@ -242,11 +247,6 @@ export default function Page() {
     }
   };
 
-  const handleToggleSelectMode = () => {
-    setSelectMode((prev) => !prev);
-    if (selectMode) setSelectedIds(new Set());
-  };
-
   if (isLoading) {
     return (
       <div className="flex justify-center items-center py-16">
@@ -256,14 +256,31 @@ export default function Page() {
   }
 
   return (
-    <div className="space-y-8 pb-8">
-      <div className="flex justify-between items-center">
+    <div className="space-y-6 pb-8">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Photos</h1>
+          <p className="text-sm text-muted-foreground">
+            {photosCount.photo} photo{photosCount.photo !== 1 ? "s" : ""} and{" "}
+            {photosCount.video} video{photosCount.video !== 1 ? "s" : ""} · {totalSizeMB} MB
+          </p>
+        </div>
         <div className="flex items-center gap-2">
+          <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as "grid" | "large")} className="hidden sm:block">
+            <TabsList className="h-9 bg-secondary">
+              <TabsTrigger value="grid" className="px-3">
+                <Grid3X3 className="size-4" />
+              </TabsTrigger>
+              <TabsTrigger value="large" className="px-3">
+                <LayoutGrid className="size-4" />
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
           <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
             <DialogTrigger asChild>
               <Button>
                 <Upload className="h-4 w-4 mr-2" />
-                Upload Files
+                Upload
               </Button>
             </DialogTrigger>
             <DialogContent>
@@ -273,76 +290,52 @@ export default function Page() {
               <FileDropZone onUploadComplete={handleUploadComplete} />
             </DialogContent>
           </Dialog>
-          {photos.length > 0 && (
-            <Button
-              variant={selectMode ? "default" : "outline"}
-              size="sm"
-              onClick={handleToggleSelectMode}
-            >
-              {selectMode ? (
-                <>
-                  <CheckSquare className="h-4 w-4 mr-2" />
-                  Done
-                </>
-              ) : (
-                <>
-                  <Square className="h-4 w-4 mr-2" />
-                  Select
-                </>
-              )}
-            </Button>
-          )}
-        </div>
-
-        <div className="text-sm text-muted-foreground font-semibold">
-          {photosCount.video} video{photosCount.video !== 1 ? "s" : ""} ·{" "}
-          {photosCount.photo} photo{photosCount.photo !== 1 ? "s" : ""} ·{" "}
-          {totalSizeMB} MB
         </div>
       </div>
 
       {photos.length > 0 && (
         <div>
-          <div className="flex items-center justify-end mb-4">
-            {selectedIds.size > 0 && (
+          {selectedIds.size > 0 && (
+            <div className="flex items-center justify-between rounded-lg bg-secondary p-3 mb-4">
+              <span className="text-sm font-medium">
+                {selectedIds.size} item{selectedIds.size !== 1 ? "s" : ""} selected
+              </span>
               <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">
-                  {selectedIds.size} selected
-                </span>
                 <Button
-                  variant="outline"
+                  variant="ghost"
                   size="sm"
                   onClick={() => setBulkUpdatePending(true)}
                 >
-                  <CalendarDays className="h-4 w-4 mr-1" />
+                  <CalendarDays className="mr-2 size-4" />
                   Update date
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setDownloadPending(true)}
-                >
-                  <Download className="h-4 w-4 mr-1" />
-                  Download
-                </Button>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => setBulkDeletePending(true)}
-                >
-                  <Trash2 className="h-4 w-4 mr-1" />
-                  Delete selected
                 </Button>
                 <Button
                   variant="ghost"
                   size="sm"
+                  onClick={() => setDownloadPending(true)}
+                >
+                  <Download className="mr-2 size-4" />
+                  Download
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => setBulkDeletePending(true)}
+                >
+                  <Trash2 className="mr-2 size-4" />
+                  Delete
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={() => setSelectedIds(new Set())}
                 >
-                  Clear
+                  Cancel
                 </Button>
               </div>
-            )}
-          </div>
+            </div>
+          )}
           <PhotoGrid
             photos={photos}
             selectedIds={selectedIds}
@@ -350,7 +343,7 @@ export default function Page() {
             onDeleteRequest={setPhotoToDelete}
             onPhotoClick={setViewerIndex}
             onRetry={handleRetry}
-            selectMode={selectMode}
+            viewMode={viewMode}
           />
           <div ref={sentinelRef} className="h-4" />
           {isLoadingMore && (

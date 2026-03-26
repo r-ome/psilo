@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { NavBar } from "./components/NavBar";
+import { ProtectedShell } from "./components/ProtectedShell";
 
 export default async function ProtectedLayout({
   children,
@@ -14,10 +14,5 @@ export default async function ProtectedLayout({
     redirect("/login");
   }
 
-  return (
-    <div>
-      <NavBar />
-      <div className="mx-4 mt-10">{children}</div>
-    </div>
-  );
+  return <ProtectedShell>{children}</ProtectedShell>;
 }

@@ -3,7 +3,13 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { Trash2, Loader2Icon } from "lucide-react";
+import {
+  Plus,
+  MoreHorizontal,
+  Pencil,
+  Trash2,
+  Loader2Icon,
+} from "lucide-react";
 import { Card, CardContent } from "@/app/components/ui/card";
 import { Button } from "@/app/components/ui/button";
 import { Input } from "@/app/components/ui/input";
@@ -13,9 +19,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/app/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/app/components/ui/dropdown-menu";
 import DeleteConfirmDialog from "@/app/(protected)/components/DeleteConfirmDialog";
 import { albumService, Album } from "@/app/lib/services/album.service";
-import { formatDate } from "@/app/lib/utils";
 
 export default function AlbumsPage() {
   const [albums, setAlbums] = useState<Album[]>([]);
@@ -24,6 +36,9 @@ export default function AlbumsPage() {
   const [creating, setCreating] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [albumToDelete, setAlbumToDelete] = useState<Album | null>(null);
+  const [albumToRename, setAlbumToRename] = useState<Album | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [renaming, setRenaming] = useState(false);
 
   useEffect(() => {
     albumService
@@ -53,10 +68,36 @@ export default function AlbumsPage() {
     setAlbumToDelete(null);
   };
 
+  const handleRename = async () => {
+    if (!albumToRename || !renameValue.trim()) return;
+    setRenaming(true);
+    try {
+      const updated = await albumService.updateAlbum(
+        albumToRename.id,
+        renameValue.trim(),
+      );
+      setAlbums((prev) =>
+        prev.map((a) => (a.id === updated.id ? { ...a, name: updated.name } : a)),
+      );
+      setAlbumToRename(null);
+    } finally {
+      setRenaming(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
-      <div>
-        <Button onClick={() => setDialogOpen(true)}>Create Album</Button>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Albums</h1>
+          <p className="text-sm text-muted-foreground">
+            {albums.length} album{albums.length !== 1 ? "s" : ""}
+          </p>
+        </div>
+        <Button className="gap-2" onClick={() => setDialogOpen(true)}>
+          <Plus className="size-4" />
+          New Album
+        </Button>
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -76,46 +117,83 @@ export default function AlbumsPage() {
               onClick={handleCreate}
               disabled={creating || !newAlbumName.trim()}
             >
-              {creating && <Loader2Icon className="h-4 w-4 mr-2 animate-spin" />}
+              {creating && (
+                <Loader2Icon className="h-4 w-4 mr-2 animate-spin" />
+              )}
               Create
             </Button>
           </div>
         </DialogContent>
       </Dialog>
 
-      <div>
-        <h2 className="text-lg font-semibold mb-4">Your Albums</h2>
-        {isLoading ? (
-          <div className="flex justify-center items-center py-16">
-            <Loader2Icon className="h-8 w-8 animate-spin text-muted-foreground" />
+      <Dialog
+        open={albumToRename !== null}
+        onOpenChange={(open) => !open && setAlbumToRename(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename Album</DialogTitle>
+          </DialogHeader>
+          <div className="flex gap-2">
+            <Input
+              placeholder="Album name"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleRename()}
+              autoFocus
+            />
+            <Button
+              onClick={handleRename}
+              disabled={renaming || !renameValue.trim()}
+            >
+              {renaming && (
+                <Loader2Icon className="h-4 w-4 mr-2 animate-spin" />
+              )}
+              Save
+            </Button>
           </div>
-        ) : albums.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No albums yet.</p>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-            {albums.map((album) => (
-              <Link key={album.id} href={`/albums/${album.id}`}>
-                <Card className="hover:bg-muted/50 transition-colors cursor-pointer overflow-hidden pt-0 gap-0 hover:shadow-lg">
-                  <div className="relative w-full aspect-square bg-muted flex items-center justify-center">
-                    <button
-                      className="absolute top-2 left-2 z-10 p-1.5 rounded-full bg-background/80 hover:bg-destructive hover:text-white transition-colors"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setAlbumToDelete(album);
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                    {album.coverUrl ? (
-                      <Image
-                        src={album.coverUrl}
-                        alt={album.name}
-                        width={400}
-                        height={400}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
+        </DialogContent>
+      </Dialog>
+
+      {isLoading ? (
+        <div className="flex justify-center items-center py-16">
+          <Loader2Icon className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      ) : albums.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No albums yet.</p>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {albums.map((album) => (
+            <Card
+              key={album.id}
+              className="group overflow-hidden border-border bg-card transition-colors hover:bg-secondary/50 pt-0 gap-0"
+            >
+              <Link href={`/albums/${album.id}`}>
+                <div className="relative aspect-square bg-muted overflow-hidden">
+                  {album.coverUrls.length >= 4 ? (
+                    <div className="grid h-full w-full grid-cols-2 grid-rows-2 gap-0.5">
+                      {album.coverUrls.slice(0, 4).map((src, index) => (
+                        <div key={index} className="relative overflow-hidden">
+                          <Image
+                            src={src}
+                            alt=""
+                            fill
+                            className="object-cover transition-transform group-hover:scale-105"
+                            sizes="(max-width: 640px) 50vw, (max-width: 1024px) 25vw, 12.5vw"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  ) : album.coverUrls.length > 0 ? (
+                    <Image
+                      src={album.coverUrls[0]}
+                      alt={album.name}
+                      fill
+                      className="object-cover transition-transform group-hover:scale-105"
+                      sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center">
                       <svg
                         xmlns="http://www.w3.org/2000/svg"
                         className="h-10 w-10 text-muted-foreground"
@@ -135,24 +213,58 @@ export default function AlbumsPage() {
                           d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"
                         />
                       </svg>
-                    )}
-                  </div>
-                  <CardContent className="pt-3">
-                    <p className="font-medium truncate">{album.name}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {album.createdAt
-                        ? formatDate(
-                            new Date(album.createdAt).toLocaleDateString(),
-                          )
-                        : ""}
-                    </p>
-                  </CardContent>
-                </Card>
+                    </div>
+                  )}
+                </div>
               </Link>
-            ))}
-          </div>
-        )}
-      </div>
+              <CardContent className="p-4">
+                <div className="flex items-start justify-between">
+                  <Link href={`/albums/${album.id}`} className="min-w-0 flex-1">
+                    <h3 className="font-medium leading-none truncate">
+                      {album.name}
+                    </h3>
+                    {album.createdAt && (
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {new Date(album.createdAt).toLocaleDateString()}
+                      </p>
+                    )}
+                  </Link>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 shrink-0"
+                      >
+                        <MoreHorizontal className="size-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onClick={() => {
+                          setRenameValue(album.name);
+                          setAlbumToRename(album);
+                        }}
+                      >
+                        <Pencil className="mr-2 size-4" />
+                        Rename
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        className="text-destructive"
+                        onClick={() => setAlbumToDelete(album)}
+                      >
+                        <Trash2 className="mr-2 size-4" />
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
 
       {albumToDelete && (
         <DeleteConfirmDialog

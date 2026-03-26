@@ -1,11 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import {
-  CheckSquare,
-  Square,
-  Loader2Icon,
-} from "lucide-react";
+import { Loader2Icon } from "lucide-react";
 import { Button } from "@/app/components/ui/button";
 import PhotoGrid from "@/app/(protected)/components/PhotoGrid";
 import DeleteConfirmDialog from "@/app/(protected)/components/DeleteConfirmDialog";
@@ -21,17 +17,6 @@ export default function TrashPage() {
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkRestorePending, setBulkRestorePending] = useState(false);
-  const [selectMode, setSelectMode] = useState(false);
-
-  const loadPhotos = useCallback(() => {
-    photoService
-      .listTrashPhotos()
-      .then((data) => {
-        setPhotos(data.photos);
-        setNextCursor(data.nextCursor);
-      })
-      .catch(() => {});
-  }, []);
 
   const loadMore = useCallback(() => {
     if (!nextCursor) return;
@@ -86,11 +71,6 @@ export default function TrashPage() {
     }
   };
 
-  const handleToggleSelectMode = () => {
-    setSelectMode((prev) => !prev);
-    if (selectMode) setSelectedIds(new Set());
-  };
-
   if (isLoading) {
     return (
       <div className="flex justify-center items-center py-16">
@@ -102,41 +82,22 @@ export default function TrashPage() {
   return (
     <div className="space-y-8 pb-8">
       <div className="flex justify-between items-center">
-        <div className="flex items-center gap-2">
-          {photos.length > 0 && (
-            <Button
-              variant={selectMode ? "default" : "outline"}
-              size="sm"
-              onClick={handleToggleSelectMode}
-            >
-              {selectMode ? (
-                <>
-                  <CheckSquare className="h-4 w-4 mr-2" />
-                  Done
-                </>
-              ) : (
-                <>
-                  <Square className="h-4 w-4 mr-2" />
-                  Select
-                </>
-              )}
-            </Button>
-          )}
-        </div>
-
-        <div className="text-sm text-muted-foreground font-semibold">
-          {photos.length} item{photos.length !== 1 ? "s" : ""}
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Trash</h1>
+          <p className="text-sm text-muted-foreground">
+            {photos.length} item{photos.length !== 1 ? "s" : ""}
+          </p>
         </div>
       </div>
 
       {photos.length > 0 ? (
         <div>
-          <div className="flex items-center justify-end mb-4">
-            {selectedIds.size > 0 && (
+          {selectedIds.size > 0 && (
+            <div className="flex items-center justify-between rounded-lg bg-secondary p-3 mb-4">
+              <span className="text-sm font-medium">
+                {selectedIds.size} item{selectedIds.size !== 1 ? "s" : ""} selected
+              </span>
               <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">
-                  {selectedIds.size} selected
-                </span>
                 <Button
                   variant="default"
                   size="sm"
@@ -152,14 +113,13 @@ export default function TrashPage() {
                   Clear
                 </Button>
               </div>
-            )}
-          </div>
+            </div>
+          )}
           <PhotoGrid
             photos={photos}
             selectedIds={selectedIds}
             onToggleSelect={handleToggleSelect}
             onPhotoClick={setViewerIndex}
-            selectMode={selectMode}
           />
           <div ref={sentinelRef} className="h-4" />
           {isLoadingMore && (
