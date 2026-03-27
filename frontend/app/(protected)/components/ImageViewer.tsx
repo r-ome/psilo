@@ -74,17 +74,6 @@ export default function ImageViewer({
     };
   }, [api]);
 
-  useEffect(() => {
-    if (initialIndex === null) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "ArrowLeft") api?.scrollPrev();
-      else if (e.key === "ArrowRight") api?.scrollNext();
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [api, initialIndex]);
 
   const currentPhoto = photos[currentIndex];
 

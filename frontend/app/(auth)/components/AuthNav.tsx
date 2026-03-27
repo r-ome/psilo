@@ -1,19 +1,22 @@
-"use client"
+"use client";
 
-import Link from "next/link"
-import { useTheme } from "next-themes"
-import { Cloud, Sun, Moon } from "lucide-react"
-import { Button } from "@/app/components/ui/button"
+import Link from "next/link";
+import { useTheme } from "next-themes";
+import { Cloud, Sun, Moon } from "lucide-react";
+import { Button } from "@/app/components/ui/button";
 
 export function AuthNav() {
-  const { theme, setTheme } = useTheme()
+  const { theme, setTheme } = useTheme();
 
   return (
     <nav className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-sm">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
-        <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+        <Link
+          href="/"
+          className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+        >
           <Cloud className="size-6 text-primary" />
-          <span className="text-lg font-semibold">Psilo</span>
+          <span className="text-lg font-semibold">PSilo</span>
         </Link>
         <Button
           variant="ghost"
@@ -26,5 +29,5 @@ export function AuthNav() {
         </Button>
       </div>
     </nav>
-  )
+  );
 }

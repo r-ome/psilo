@@ -53,7 +53,7 @@ export default function AlbumsPage() {
     setCreating(true);
     try {
       const album = await albumService.createAlbum(newAlbumName.trim());
-      setAlbums((prev) => [...prev, album]);
+      setAlbums((prev) => [...prev, { ...album, coverUrls: album.coverUrls ?? [] }]);
       setNewAlbumName("");
       setDialogOpen(false);
     } finally {

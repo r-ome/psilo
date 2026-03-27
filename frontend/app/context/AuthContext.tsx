@@ -37,7 +37,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const handleLogout = async () => {
     authService.logout();
     setIsAuthenticated(false);
-    router.push("/login");
+    router.push("/");
   };
 
   return (

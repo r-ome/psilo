@@ -39,30 +39,37 @@ export class UploadPipelineConstruct extends Construct {
       { prefix: "users/" },
     );
 
-    const processPhotoMetadataFn = new NodejsFunction(this, "ProcessPhotoMetadataFn", {
-      entry: path.join(__dirname, "../../../services/process-photo-metadata/src/handler.ts"),
-      handler: "handler",
-      runtime: lambda.Runtime.NODEJS_22_X,
-      environment: {
-        BUCKET_NAME: bucket.bucketName,
-        ...database.env,
-        BATCH_JOB_QUEUE: videoPipeline.jobQueueArn,
-        BATCH_JOB_DEFINITION: videoPipeline.jobDefinitionArn,
-      },
-      timeout: cdk.Duration.seconds(300),
-      memorySize: 3008,
-      bundling: {
-        esbuildVersion: "0.21",
-        nodeModules: ["sharp"],
-        commandHooks: {
-          beforeBundling: () => [],
-          beforeInstall: () => [],
-          afterBundling: (_inputDir: string, outputDir: string) => [
-            `cd ${outputDir} && rm -rf node_modules/sharp node_modules/@img && npm install --os=linux --cpu=x64 sharp`,
-          ],
+    const processPhotoMetadataFn = new NodejsFunction(
+      this,
+      "ProcessPhotoMetadataFn",
+      {
+        entry: path.join(
+          __dirname,
+          "../../../services/process-photo-metadata/src/handler.ts",
+        ),
+        handler: "handler",
+        runtime: lambda.Runtime.NODEJS_22_X,
+        environment: {
+          BUCKET_NAME: bucket.bucketName,
+          ...database.env,
+          BATCH_JOB_QUEUE: videoPipeline.jobQueueArn,
+          BATCH_JOB_DEFINITION: videoPipeline.jobDefinitionArn,
+        },
+        timeout: cdk.Duration.seconds(300),
+        memorySize: 1536,
+        bundling: {
+          esbuildVersion: "0.21",
+          nodeModules: ["sharp"],
+          commandHooks: {
+            beforeBundling: () => [],
+            beforeInstall: () => [],
+            afterBundling: (_inputDir: string, outputDir: string) => [
+              `cd ${outputDir} && rm -rf node_modules/sharp node_modules/@img && npm install --os=linux --cpu=x64 sharp`,
+            ],
+          },
         },
       },
-    });
+    );
     bucket.grantRead(processPhotoMetadataFn);
     bucket.grantPut(processPhotoMetadataFn, "users/*/thumbnails/*");
     bucket.grantWrite(processPhotoMetadataFn, "users/*/thumbnails/*");
@@ -82,11 +89,17 @@ export class UploadPipelineConstruct extends Construct {
       }),
     );
     processPhotoMetadataFn.addEventSource(
-      new SqsEventSource(uploadQueue, { batchSize: 1, reportBatchItemFailures: true }),
+      new SqsEventSource(uploadQueue, {
+        batchSize: 5,
+        reportBatchItemFailures: true,
+      }),
     );
 
     const handleUploadDlqFn = new NodejsFunction(this, "HandleUploadDlqFn", {
-      entry: path.join(__dirname, "../../../services/handle-upload-dlq/src/handler.ts"),
+      entry: path.join(
+        __dirname,
+        "../../../services/handle-upload-dlq/src/handler.ts",
+      ),
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
       environment: { ...database.env },
@@ -96,7 +109,10 @@ export class UploadPipelineConstruct extends Construct {
     database.grantAccess(handleUploadDlqFn);
     uploadDlq.grantConsumeMessages(handleUploadDlqFn);
     handleUploadDlqFn.addEventSource(
-      new SqsEventSource(uploadDlq, { batchSize: 1, reportBatchItemFailures: true }),
+      new SqsEventSource(uploadDlq, {
+        batchSize: 1,
+        reportBatchItemFailures: true,
+      }),
     );
   }
 }

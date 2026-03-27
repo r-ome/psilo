@@ -1,12 +1,30 @@
-"use client"
+"use client";
 
-import Link from "next/link"
-import { useState } from "react"
-import { useTheme } from "next-themes"
-import { Button } from "@/app/components/ui/button"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/app/components/ui/card"
-import { Badge } from "@/app/components/ui/badge"
-import { Check, Cloud, Lock, Zap, Archive, ArrowRight, Shield, Clock, Sun, Moon } from "lucide-react"
+import Link from "next/link";
+import { useState } from "react";
+import { useTheme } from "next-themes";
+import { Button } from "@/app/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/app/components/ui/card";
+import { Badge } from "@/app/components/ui/badge";
+import {
+  Check,
+  Cloud,
+  Lock,
+  Zap,
+  Archive,
+  ArrowRight,
+  Shield,
+  Clock,
+  Sun,
+  Moon,
+} from "lucide-react";
 
 const pricingPlans = [
   {
@@ -69,34 +87,38 @@ const pricingPlans = [
     cta: "Start Free Trial",
     highlighted: false,
   },
-]
+];
 
 const features = [
   {
     icon: Zap,
     title: "Standard Storage",
-    description: "Instant access to your most recent photos and videos. Perfect for everyday memories you want to relive anytime.",
+    description:
+      "Instant access to your most recent photos and videos. Perfect for everyday memories you want to relive anytime.",
   },
   {
     icon: Archive,
     title: "Glacier Archive",
-    description: "Long-term cold storage at a fraction of the cost. Ideal for preserving decades of memories safely and affordably.",
+    description:
+      "Long-term cold storage at a fraction of the cost. Ideal for preserving decades of memories safely and affordably.",
   },
   {
     icon: Shield,
     title: "Privacy First",
-    description: "Your files are stored privately in your own S3 bucket. No ad targeting, no data mining — your memories stay yours.",
+    description:
+      "Your files are stored privately in your own S3 bucket. No ad targeting, no data mining — your memories stay yours.",
   },
   {
     icon: Clock,
     title: "Smart Restore",
-    description: "Request restores from Glacier with flexible retrieval options. Track progress in real-time from your dashboard.",
+    description:
+      "Request restores from Glacier with flexible retrieval options. Track progress in real-time from your dashboard.",
   },
-]
+];
 
 export default function HomePage() {
-  const [annual, setAnnual] = useState(false)
-  const { theme, setTheme } = useTheme()
+  const [annual, setAnnual] = useState(false);
+  const { theme, setTheme } = useTheme();
 
   return (
     <div className="min-h-screen bg-background">
@@ -105,13 +127,19 @@ export default function HomePage() {
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
           <div className="flex items-center gap-2">
             <Cloud className="size-6 text-primary" />
-            <span className="text-lg font-semibold">Psilo</span>
+            <span className="text-lg font-semibold">PSilo</span>
           </div>
           <div className="hidden items-center gap-8 md:flex">
-            <Link href="#features" className="text-sm text-muted-foreground transition-colors hover:text-foreground">
+            <Link
+              href="#features"
+              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+            >
               Features
             </Link>
-            <Link href="#pricing" className="text-sm text-muted-foreground transition-colors hover:text-foreground">
+            <Link
+              href="#pricing"
+              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+            >
               Pricing
             </Link>
           </div>
@@ -145,8 +173,9 @@ export default function HomePage() {
             Your memories, preserved forever
           </h1>
           <p className="mx-auto mt-6 max-w-2xl text-pretty text-lg text-muted-foreground">
-            Psilo combines instant-access photo storage with cost-effective cold archiving.
-            Store a lifetime of photos and videos — starting at $2.49/month.
+            PSilo combines instant-access photo storage with cost-effective cold
+            archiving. Store a lifetime of photos and videos — starting at
+            $2.49/month.
           </p>
           <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
             <Button size="lg" className="gap-2" asChild>
@@ -173,19 +202,25 @@ export default function HomePage() {
           </p>
           <div className="flex flex-wrap items-center justify-center gap-x-12 gap-y-4 text-sm">
             <div className="text-center">
-              <p className="font-semibold">Psilo 200 GB</p>
+              <p className="font-semibold">PSilo 200 GB</p>
               <p className="text-primary font-bold">$2.49/mo</p>
-              <p className="text-xs text-muted-foreground">vs Google $2.99 (-17%)</p>
+              <p className="text-xs text-muted-foreground">
+                vs Google $2.99 (-17%)
+              </p>
             </div>
             <div className="text-center">
-              <p className="font-semibold">Psilo 1 TB</p>
+              <p className="font-semibold">PSilo 1 TB</p>
               <p className="text-primary font-bold">$7.49/mo</p>
-              <p className="text-xs text-muted-foreground">No Google/iCloud 1 TB</p>
+              <p className="text-xs text-muted-foreground">
+                No Google/iCloud 1 TB
+              </p>
             </div>
             <div className="text-center">
-              <p className="font-semibold">Psilo 2 TB</p>
+              <p className="font-semibold">PSilo 2 TB</p>
               <p className="text-primary font-bold">$13.49/mo</p>
-              <p className="text-xs text-muted-foreground">vs Google $13.99 (-3.5%)</p>
+              <p className="text-xs text-muted-foreground">
+                vs Google $13.99 (-3.5%)
+              </p>
             </div>
           </div>
         </div>
@@ -199,7 +234,8 @@ export default function HomePage() {
               Built for serious archiving
             </h2>
             <p className="mx-auto mt-4 max-w-2xl text-muted-foreground">
-              Two storage tiers designed to balance cost, accessibility, and long-term preservation.
+              Two storage tiers designed to balance cost, accessibility, and
+              long-term preservation.
             </p>
           </div>
           <div className="grid gap-8 md:grid-cols-2">
@@ -221,7 +257,10 @@ export default function HomePage() {
       </section>
 
       {/* Pricing Section */}
-      <section id="pricing" className="border-t border-border bg-secondary/20 px-6 py-24">
+      <section
+        id="pricing"
+        className="border-t border-border bg-secondary/20 px-6 py-24"
+      >
         <div className="mx-auto max-w-6xl">
           <div className="mb-4 text-center">
             <Badge variant="secondary" className="mb-4">
@@ -232,12 +271,15 @@ export default function HomePage() {
             Plans and Pricing
           </h2>
           <p className="mx-auto mt-4 max-w-2xl text-center text-muted-foreground">
-            Privacy-first photo archiving. No free tier — every plan is priced to be the cheapest option on the market.
+            Privacy-first photo archiving. No free tier — every plan is priced
+            to be the cheapest option on the market.
           </p>
 
           {/* Billing toggle */}
           <div className="mt-10 flex items-center justify-center gap-4">
-            <span className={`text-sm ${!annual ? "text-foreground font-medium" : "text-muted-foreground"}`}>
+            <span
+              className={`text-sm ${!annual ? "text-foreground font-medium" : "text-muted-foreground"}`}
+            >
               Monthly
             </span>
             <button
@@ -253,9 +295,13 @@ export default function HomePage() {
                 }`}
               />
             </button>
-            <span className={`text-sm ${annual ? "text-foreground font-medium" : "text-muted-foreground"}`}>
+            <span
+              className={`text-sm ${annual ? "text-foreground font-medium" : "text-muted-foreground"}`}
+            >
               Annual
-              <Badge variant="secondary" className="ml-2 text-xs">1 month free</Badge>
+              <Badge variant="secondary" className="ml-2 text-xs">
+                1 month free
+              </Badge>
             </span>
           </div>
 
@@ -287,14 +333,18 @@ export default function HomePage() {
                       Billed {plan.annualPrice}/year · {plan.annualSavings}
                     </p>
                   )}
-                  <CardDescription className="pt-2">{plan.description}</CardDescription>
+                  <CardDescription className="pt-2">
+                    {plan.description}
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="flex-1">
                   <ul className="space-y-3">
                     {plan.features.map((feature) => (
                       <li key={feature} className="flex items-start gap-3">
                         <Check className="mt-0.5 size-4 shrink-0 text-primary" />
-                        <span className="text-sm text-muted-foreground">{feature}</span>
+                        <span className="text-sm text-muted-foreground">
+                          {feature}
+                        </span>
                       </li>
                     ))}
                   </ul>
@@ -322,7 +372,8 @@ export default function HomePage() {
             Start preserving your memories today
           </h2>
           <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
-            Privacy-first photo archiving powered by AWS. Your files, your bucket, no lock-in.
+            Privacy-first photo archiving powered by AWS. Your files, your
+            bucket, no lock-in.
           </p>
           <Button size="lg" className="mt-8 gap-2" asChild>
             <Link href="/sign-up">
@@ -337,18 +388,24 @@ export default function HomePage() {
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-6 md:flex-row">
           <div className="flex items-center gap-2">
             <Cloud className="size-5 text-primary" />
-            <span className="font-semibold">Psilo</span>
+            <span className="font-semibold">PSilo</span>
           </div>
           <div className="flex flex-wrap items-center justify-center gap-6 text-sm text-muted-foreground">
-            <Link href="#" className="transition-colors hover:text-foreground">Privacy</Link>
-            <Link href="#" className="transition-colors hover:text-foreground">Terms</Link>
-            <Link href="#" className="transition-colors hover:text-foreground">Security</Link>
+            <Link href="#" className="transition-colors hover:text-foreground">
+              Privacy
+            </Link>
+            <Link href="#" className="transition-colors hover:text-foreground">
+              Terms
+            </Link>
+            <Link href="#" className="transition-colors hover:text-foreground">
+              Security
+            </Link>
           </div>
           <p className="text-sm text-muted-foreground">
-            &copy; 2026 Psilo. All rights reserved.
+            &copy; 2026 PSilo. All rights reserved.
           </p>
         </div>
       </footer>
     </div>
-  )
+  );
 }
