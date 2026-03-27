@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const PUBLIC_PATHS = [
+  "/",
   "/login",
   "/sign-up",
   "/forgot-password",
@@ -10,7 +11,9 @@ const PUBLIC_PATHS = [
 ];
 
 function isPublicPath(pathname: string) {
-  return PUBLIC_PATHS.some((path) => pathname.startsWith(path));
+  return PUBLIC_PATHS.some((path) =>
+    path === "/" ? pathname === "/" : pathname.startsWith(path)
+  );
 }
 
 export function proxy(req: NextRequest) {

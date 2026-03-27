@@ -18,6 +18,7 @@ import { signUpSchema } from "@/app/lib/schemas/auth";
 import { authService } from "@/app/lib/services/auth.services";
 import { SIGNUP_STEPS, type SignUpStep } from "@/app/lib/constants/auth";
 import { toast } from "sonner";
+import { AuthNav } from "@/app/(auth)/components/AuthNav";
 
 const SignUpPage = () => {
   const router = useRouter();
@@ -228,7 +229,9 @@ const SignUpPage = () => {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen">
+    <div className="min-h-screen">
+      <AuthNav />
+      <div className="flex items-center justify-center py-16">
       <div className="w-1/3">
         <Card>
           <CardHeader>
@@ -268,6 +271,7 @@ const SignUpPage = () => {
             )}
           </CardFooter>
         </Card>
+      </div>
       </div>
     </div>
   );

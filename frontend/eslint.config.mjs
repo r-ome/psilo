@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Design reference folder — not part of this project
+    "b_ycX9tFVCjJb-1774594426144/**",
   ]),
   {
     rules: {

@@ -19,6 +19,7 @@ import { Button } from "@/app/components/ui/button";
 import { toast } from "sonner";
 import { useAuth } from "@/app/context/AuthContext";
 import { loginSchema } from "@/app/lib/schemas/auth";
+import { AuthNav } from "@/app/(auth)/components/AuthNav";
 
 const LoginPage = () => {
   const auth = useAuth();
@@ -65,7 +66,9 @@ const LoginPage = () => {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen">
+    <div className="min-h-screen">
+      <AuthNav />
+      <div className="flex items-center justify-center py-16">
       <div className="w-1/3">
         <Card>
           <CardHeader>
@@ -132,6 +135,7 @@ const LoginPage = () => {
             </Button>
           </CardFooter>
         </Card>
+      </div>
       </div>
     </div>
   );
