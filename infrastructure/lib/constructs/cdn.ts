@@ -42,36 +42,47 @@ export class CdnConstruct extends Construct {
       items: [this.cfPublicKey],
     });
 
-    const s3Origin = origins.S3BucketOrigin.withOriginAccessControl(props.bucket, {
-      originAccessLevels: [cloudfront.AccessLevel.READ],
-    });
+    const s3Origin = origins.S3BucketOrigin.withOriginAccessControl(
+      props.bucket,
+      {
+        originAccessLevels: [cloudfront.AccessLevel.READ],
+      },
+    );
 
-    const thumbnailCachePolicy = new cloudfront.CachePolicy(this, "ThumbnailPolicy", {
-      defaultTtl: cdk.Duration.hours(24),
-      minTtl: cdk.Duration.seconds(0),
-      maxTtl: cdk.Duration.days(7),
-      queryStringBehavior: cloudfront.CacheQueryStringBehavior.none(),
-      headerBehavior: cloudfront.CacheHeaderBehavior.none(),
-      cookieBehavior: cloudfront.CacheCookieBehavior.none(),
-      enableAcceptEncodingGzip: true,
-      enableAcceptEncodingBrotli: true,
-    });
+    const thumbnailCachePolicy = new cloudfront.CachePolicy(
+      this,
+      "ThumbnailPolicy",
+      {
+        defaultTtl: cdk.Duration.hours(24),
+        minTtl: cdk.Duration.seconds(0),
+        maxTtl: cdk.Duration.days(7),
+        queryStringBehavior: cloudfront.CacheQueryStringBehavior.none(),
+        headerBehavior: cloudfront.CacheHeaderBehavior.none(),
+        cookieBehavior: cloudfront.CacheCookieBehavior.none(),
+        enableAcceptEncodingGzip: true,
+        enableAcceptEncodingBrotli: true,
+      },
+    );
 
-    const defaultCachePolicy = new cloudfront.CachePolicy(this, "DefaultPolicy", {
-      defaultTtl: cdk.Duration.hours(1),
-      minTtl: cdk.Duration.seconds(0),
-      maxTtl: cdk.Duration.hours(24),
-      queryStringBehavior: cloudfront.CacheQueryStringBehavior.none(),
-      headerBehavior: cloudfront.CacheHeaderBehavior.none(),
-      cookieBehavior: cloudfront.CacheCookieBehavior.none(),
-      enableAcceptEncodingGzip: true,
-      enableAcceptEncodingBrotli: true,
-    });
+    const defaultCachePolicy = new cloudfront.CachePolicy(
+      this,
+      "DefaultPolicy",
+      {
+        defaultTtl: cdk.Duration.hours(1),
+        minTtl: cdk.Duration.seconds(0),
+        maxTtl: cdk.Duration.hours(24),
+        queryStringBehavior: cloudfront.CacheQueryStringBehavior.none(),
+        headerBehavior: cloudfront.CacheHeaderBehavior.none(),
+        cookieBehavior: cloudfront.CacheCookieBehavior.none(),
+        enableAcceptEncodingGzip: true,
+        enableAcceptEncodingBrotli: true,
+      },
+    );
 
     const trustedKeyGroups = [this.keyGroup];
 
     this.distribution = new cloudfront.Distribution(this, "Distribution", {
-      priceClass: props.priceClass ?? cloudfront.PriceClass.PRICE_CLASS_ALL,
+      priceClass: props.priceClass ?? cloudfront.PriceClass.PRICE_CLASS_200,
       defaultBehavior: {
         origin: s3Origin,
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
@@ -82,6 +93,14 @@ export class CdnConstruct extends Construct {
       },
       additionalBehaviors: {
         "users/*/thumbnails/*": {
+          origin: s3Origin,
+          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
+          allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,
+          cachedMethods: cloudfront.CachedMethods.CACHE_GET_HEAD,
+          cachePolicy: thumbnailCachePolicy,
+          trustedKeyGroups,
+        },
+        "users/*/previews/*": {
           origin: s3Origin,
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
           allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,

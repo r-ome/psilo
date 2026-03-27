@@ -114,7 +114,7 @@ describe('manage-photos handler', () => {
       const body = JSON.parse(result.body as string);
       expect(body).toEqual({
         photos: [
-          { ...photos[0], thumbnailUrl: 'https://xxx.cloudfront.net/signed-url' },
+          { ...photos[0], thumbnailUrl: 'https://xxx.cloudfront.net/signed-url', previewUrl: null },
         ],
         nextCursor: null,
       });
@@ -183,7 +183,7 @@ describe('manage-photos handler', () => {
       const body = JSON.parse(result.body as string);
       expect(body).toEqual({
         photos: [
-          { ...photos[0], thumbnailUrl: 'https://xxx.cloudfront.net/signed-url' },
+          { ...photos[0], thumbnailUrl: 'https://xxx.cloudfront.net/signed-url', previewUrl: null },
         ],
         nextCursor: null,
       });

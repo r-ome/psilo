@@ -13,7 +13,13 @@ import {
   CarouselPrevious,
   type CarouselApi,
 } from "@/app/components/ui/carousel";
-import { MoreHorizontal, PlusCircle, Download, RotateCcw, Trash2 } from "lucide-react";
+import {
+  MoreHorizontal,
+  PlusCircle,
+  Download,
+  RotateCcw,
+  Trash2,
+} from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -138,6 +144,15 @@ export default function ImageViewer({
                       className="max-h-[calc(90vh-5rem)] max-w-full w-auto h-auto object-contain mx-auto xl:pt-4"
                       unoptimized
                     />
+                  ) : photo.previewUrl ? (
+                    <Image
+                      src={photo.previewUrl}
+                      alt={photo.filename}
+                      width={photo.width ?? 1200}
+                      height={photo.height ?? 800}
+                      className="max-h-[calc(90vh-5rem)] max-w-full w-auto h-auto object-contain mx-auto xl:pt-4"
+                      unoptimized
+                    />
                   ) : photo.thumbnailUrl ? (
                     <Image
                       src={photo.thumbnailUrl}
@@ -213,7 +228,12 @@ export default function ImageViewer({
                   </DropdownMenuItem>
                 )}
                 {onRestore && currentPhoto && (
-                  <DropdownMenuItem onClick={() => { onRestore(currentPhoto); onClose(); }}>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      onRestore(currentPhoto);
+                      onClose();
+                    }}
+                  >
                     <RotateCcw className="h-4 w-4 mr-2" />
                     Restore
                   </DropdownMenuItem>
@@ -221,7 +241,10 @@ export default function ImageViewer({
                 {onPermanentDelete && currentPhoto && (
                   <DropdownMenuItem
                     className="text-destructive focus:text-destructive"
-                    onClick={() => { onPermanentDelete(currentPhoto); onClose(); }}
+                    onClick={() => {
+                      onPermanentDelete(currentPhoto);
+                      onClose();
+                    }}
                   >
                     <Trash2 className="h-4 w-4 mr-2" />
                     Delete permanently

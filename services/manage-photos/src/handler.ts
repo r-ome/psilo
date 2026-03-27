@@ -180,8 +180,11 @@ export const handler = async (
             ]);
             return { ...photo, signedUrl, thumbnailUrl, previewUrl };
           } else {
-            const thumbnailUrl = photo.thumbnailKey ? await signUrl(photo.thumbnailKey) : null;
-            return { ...photo, thumbnailUrl };
+            const [thumbnailUrl, previewUrl] = await Promise.all([
+              photo.thumbnailKey ? signUrl(photo.thumbnailKey) : null,
+              photo.previewKey ? signUrl(photo.previewKey) : null,
+            ]);
+            return { ...photo, thumbnailUrl, previewUrl };
           }
         }),
       );
@@ -269,8 +272,11 @@ export const handler = async (
           ]);
           return { ...photo, signedUrl, thumbnailUrl, previewUrl };
         } else {
-          const thumbnailUrl = photo.thumbnailKey ? await signUrl(photo.thumbnailKey) : null;
-          return { ...photo, thumbnailUrl };
+          const [thumbnailUrl, previewUrl] = await Promise.all([
+            photo.thumbnailKey ? signUrl(photo.thumbnailKey) : null,
+            photo.previewKey ? signUrl(photo.previewKey) : null,
+          ]);
+          return { ...photo, thumbnailUrl, previewUrl };
         }
       }),
     );
@@ -307,9 +313,9 @@ export const handler = async (
         }
       }
 
-      // Fetch matching trashed photos to get thumbnail keys
+      // Fetch matching trashed photos to get thumbnail and preview keys
       const toDelete = await db
-        .select({ id: photos.id, s3Key: photos.s3Key, thumbnailKey: photos.thumbnailKey })
+        .select({ id: photos.id, s3Key: photos.s3Key, thumbnailKey: photos.thumbnailKey, previewKey: photos.previewKey })
         .from(photos)
         .where(and(inArray(photos.s3Key, keys), eq(photos.userId, sub), isNotNull(photos.deletedAt)));
 
@@ -317,11 +323,12 @@ export const handler = async (
         return respond(200, { message: "No photos to delete", count: 0 });
       }
 
-      // Collect all S3 keys (originals + thumbnails)
+      // Collect all S3 keys (originals + thumbnails + previews)
       const s3Keys: string[] = [];
       for (const p of toDelete) {
         s3Keys.push(p.s3Key);
         if (p.thumbnailKey) s3Keys.push(p.thumbnailKey);
+        if (p.previewKey) s3Keys.push(p.previewKey);
       }
 
       // Batch delete from S3 (max 1000 per call)

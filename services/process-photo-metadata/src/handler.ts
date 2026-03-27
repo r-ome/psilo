@@ -121,6 +121,31 @@ async function generatePhotoThumbnail(
   return { buffer, contentType: "image/jpeg", extension: "jpg" };
 }
 
+async function generatePhotoPreview(
+  rawBuffer: Buffer,
+  format: string | null,
+  pages: number | null,
+): Promise<ThumbnailResult> {
+  if (format === "gif") {
+    const buffer = await sharp(rawBuffer, { animated: false })
+      .rotate()
+      .resize(2048, 2048, { fit: "inside", withoutEnlargement: true })
+      .toColorspace("srgb")
+      .webp({ quality: 85 })
+      .toBuffer();
+    return { buffer, contentType: "image/webp", extension: "webp" };
+  }
+
+  const animated = format === "webp" && (pages ?? 1) > 1;
+  const buffer = await sharp(rawBuffer, { animated })
+    .rotate()
+    .resize(2048, 2048, { fit: "inside", withoutEnlargement: true })
+    .toColorspace("srgb")
+    .webp({ quality: 85 })
+    .toBuffer();
+  return { buffer, contentType: "image/webp", extension: "webp" };
+}
+
 export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
   const db = createDb();
   const batchItemFailures: { itemIdentifier: string }[] = [];
@@ -173,6 +198,7 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
       let takenAt: Date | null = null;
       let thumbnailKey: string | null = null;
       let thumbnailSize: number | null = null;
+      let previewKey: string | null = null;
 
       if (contentType?.startsWith("video/")) {
         // For videos: tag original, update basic metadata, then submit Batch job for thumbnail/preview
@@ -250,6 +276,24 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
       );
       thumbnailKey = thumbnailPath;
 
+      // Generate photo preview (2048px WebP)
+      const { buffer: previewBuffer, contentType: previewContentType, extension: previewExtension } =
+        await generatePhotoPreview(rawBuffer, format, pages);
+      const previewPath = key
+        .replace(/\/(photos|videos)\//, "/previews/")
+        .replace(/\.[^.]+$/, `.${previewExtension}`);
+
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: previewPath,
+          Body: previewBuffer,
+          ContentType: previewContentType,
+          StorageClass: "STANDARD",
+        }),
+      );
+      previewKey = previewPath;
+
       takenAt =
         takenAt ??
         extractTakenAtFromFilename(filename) ??
@@ -278,6 +322,7 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
           takenAt,
           thumbnailKey,
           thumbnailSize,
+          previewKey,
           phash,
           deletedAt: null,
         })
