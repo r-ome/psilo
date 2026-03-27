@@ -158,7 +158,7 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
         .values({ userId, s3Key: key, filename, size, status: "processing" })
         .onConflictDoUpdate({
           target: photos.s3Key,
-          set: { status: "processing" },
+          set: { status: "processing", deletedAt: null },
         });
 
       // Phase 2: check content type first to avoid downloading large video files
@@ -279,6 +279,7 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
           thumbnailKey,
           thumbnailSize,
           phash,
+          deletedAt: null,
         })
         .where(eq(photos.s3Key, key));
 

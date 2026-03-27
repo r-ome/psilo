@@ -5,6 +5,7 @@ import {
 import {
   S3Client,
   GetObjectCommand,
+  DeleteObjectsCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { getPrivateKey, cfSignedUrl } from "../../shared/cloudfront";
@@ -278,6 +279,70 @@ export const handler = async (
   }
 
   if (method === "DELETE") {
+    // Permanent delete from trash
+    if (event.rawPath?.endsWith("/trash")) {
+      let body: unknown;
+      try {
+        body = JSON.parse(event.body ?? "{}");
+      } catch {
+        return respond(400, { message: "Invalid JSON body" });
+      }
+      if (
+        !body ||
+        typeof body !== "object" ||
+        !("keys" in body) ||
+        !Array.isArray((body as { keys: unknown }).keys)
+      ) {
+        return respond(400, { message: "Missing keys array" });
+      }
+      const keys = (body as { keys: string[] }).keys;
+
+      // Ownership guard
+      for (const key of keys) {
+        const parts = key.split("/");
+        const userSegment = parts[1] ?? "";
+        const keyUserId = userSegment.slice(-36);
+        if (keyUserId !== sub) {
+          return respond(403, { message: "Forbidden" });
+        }
+      }
+
+      // Fetch matching trashed photos to get thumbnail keys
+      const toDelete = await db
+        .select({ id: photos.id, s3Key: photos.s3Key, thumbnailKey: photos.thumbnailKey })
+        .from(photos)
+        .where(and(inArray(photos.s3Key, keys), eq(photos.userId, sub), isNotNull(photos.deletedAt)));
+
+      if (toDelete.length === 0) {
+        return respond(200, { message: "No photos to delete", count: 0 });
+      }
+
+      // Collect all S3 keys (originals + thumbnails)
+      const s3Keys: string[] = [];
+      for (const p of toDelete) {
+        s3Keys.push(p.s3Key);
+        if (p.thumbnailKey) s3Keys.push(p.thumbnailKey);
+      }
+
+      // Batch delete from S3 (max 1000 per call)
+      for (let i = 0; i < s3Keys.length; i += 1000) {
+        await s3.send(
+          new DeleteObjectsCommand({
+            Bucket: BUCKET_NAME,
+            Delete: { Objects: s3Keys.slice(i, i + 1000).map((Key) => ({ Key })) },
+          }),
+        );
+      }
+
+      // Hard-delete from DB
+      const ids = toDelete.map((p) => p.id);
+      for (let i = 0; i < ids.length; i += 500) {
+        await db.delete(photos).where(inArray(photos.id, ids.slice(i, i + 500)));
+      }
+
+      return respond(200, { message: "Photos permanently deleted", count: toDelete.length });
+    }
+
     // Bulk delete: body with keys array
     if (event.body) {
       let body: unknown;

@@ -9,7 +9,13 @@ const s3Mock = mockClient(S3Client);
 
 const mockLimit = jest.fn().mockResolvedValue([]);
 const mockOrderBy = jest.fn(() => ({ limit: mockLimit }));
-const mockSelectWhere = jest.fn(() => ({ orderBy: mockOrderBy }));
+const mockSelectWhereData: unknown[][] = [];
+const mockSelectWhere = jest.fn(() => {
+  const data = mockSelectWhereData.shift() ?? [];
+  const result = Promise.resolve(data);
+  (result as unknown as Record<string, unknown>).orderBy = mockOrderBy;
+  return result;
+});
 const mockReturning = jest.fn().mockResolvedValue([]);
 const mockUpdateWhere = jest.fn(() => ({ returning: mockReturning }));
 const mockSet = jest.fn(() => ({ where: mockUpdateWhere }));
@@ -89,6 +95,7 @@ beforeEach(() => {
   mockUpdate.mockClear();
   mockSet.mockClear();
   mockSelectWhere.mockClear();
+  mockSelectWhereData.length = 0;
   mockUpdateWhere.mockClear();
   mockCfSignedUrl.mockReset().mockResolvedValue('https://xxx.cloudfront.net/signed-url');
   mockGetPrivateKey.mockReset().mockResolvedValue('fake-private-key');
@@ -390,6 +397,73 @@ describe('manage-photos handler', () => {
 
       expect(result.statusCode).toBe(400);
       expect(mockUpdate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('DELETE /photos/trash (permanent delete)', () => {
+    const sub = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+
+    it('permanently deletes photos from S3 and DB', async () => {
+      const keys = [
+        `users/John-Doe-${sub}/photos/photo1.jpg`,
+        `users/John-Doe-${sub}/photos/photo2.jpg`,
+      ];
+      const dbPhotos = [
+        { id: 'p1', s3Key: keys[0], thumbnailKey: `users/John-Doe-${sub}/thumbnails/photo1.jpg` },
+        { id: 'p2', s3Key: keys[1], thumbnailKey: null },
+      ];
+      mockSelectWhereData.push(dbPhotos);
+
+      const result = await callHandler(
+        makeEvent('DELETE', 'DELETE /photos/trash', sub, undefined, { keys }, '/photos/trash'),
+      );
+
+      expect(result.statusCode).toBe(200);
+      const body = JSON.parse(result.body as string);
+      expect(body).toEqual({ message: 'Photos permanently deleted', count: 2 });
+      // S3 delete should have been called
+      expect(s3Mock.calls()).toHaveLength(1);
+      // DB hard delete should have been called
+      expect(mockDelete).toHaveBeenCalledWith('photos_table');
+    });
+
+    it('returns 403 when any key does not belong to user', async () => {
+      const keys = [
+        `users/John-Doe-${sub}/photos/photo1.jpg`,
+        `users/John-Doe-000000000000000000000000000000000000/photos/photo2.jpg`,
+      ];
+
+      const result = await callHandler(
+        makeEvent('DELETE', 'DELETE /photos/trash', sub, undefined, { keys }, '/photos/trash'),
+      );
+
+      expect(result.statusCode).toBe(403);
+      expect(mockSelect).not.toHaveBeenCalled();
+      expect(mockDelete).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 when body is missing keys', async () => {
+      const result = await callHandler(
+        makeEvent('DELETE', 'DELETE /photos/trash', sub, undefined, { invalid: true }, '/photos/trash'),
+      );
+
+      expect(result.statusCode).toBe(400);
+      expect(mockSelect).not.toHaveBeenCalled();
+    });
+
+    it('returns count 0 when no matching trashed photos found', async () => {
+      const keys = [`users/John-Doe-${sub}/photos/photo1.jpg`];
+      mockSelectWhereData.push([]);
+
+      const result = await callHandler(
+        makeEvent('DELETE', 'DELETE /photos/trash', sub, undefined, { keys }, '/photos/trash'),
+      );
+
+      expect(result.statusCode).toBe(200);
+      const body = JSON.parse(result.body as string);
+      expect(body.count).toBe(0);
+      expect(s3Mock.calls()).toHaveLength(0);
+      expect(mockDelete).not.toHaveBeenCalled();
     });
   });
 

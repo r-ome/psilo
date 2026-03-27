@@ -13,7 +13,7 @@ import {
   CarouselPrevious,
   type CarouselApi,
 } from "@/app/components/ui/carousel";
-import { MoreHorizontal, PlusCircle, Download } from "lucide-react";
+import { MoreHorizontal, PlusCircle, Download, RotateCcw, Trash2 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,6 +30,8 @@ interface ImageViewerProps {
   initialIndex: number | null;
   onClose: () => void;
   currentAlbum?: Album | null;
+  onRestore?: (photo: Photo) => void;
+  onPermanentDelete?: (photo: Photo) => void;
 }
 
 export default function ImageViewer({
@@ -37,6 +39,8 @@ export default function ImageViewer({
   initialIndex,
   onClose,
   currentAlbum,
+  onRestore,
+  onPermanentDelete,
 }: ImageViewerProps) {
   const [api, setApi] = useState<CarouselApi>();
   const [currentIndex, setCurrentIndex] = useState(initialIndex ?? 0);
@@ -196,14 +200,31 @@ export default function ImageViewer({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => setIsDownloadOpen(true)}>
-                  <Download className="h-4 w-4 mr-2" />
-                  Download
-                </DropdownMenuItem>
-                {!currentAlbum && (
+                {!onRestore && !onPermanentDelete && (
+                  <DropdownMenuItem onClick={() => setIsDownloadOpen(true)}>
+                    <Download className="h-4 w-4 mr-2" />
+                    Download
+                  </DropdownMenuItem>
+                )}
+                {!currentAlbum && !onRestore && !onPermanentDelete && (
                   <DropdownMenuItem onClick={() => setIsAddToAlbumOpen(true)}>
                     <PlusCircle className="h-4 w-4 mr-2" />
                     Add to Album
+                  </DropdownMenuItem>
+                )}
+                {onRestore && currentPhoto && (
+                  <DropdownMenuItem onClick={() => { onRestore(currentPhoto); onClose(); }}>
+                    <RotateCcw className="h-4 w-4 mr-2" />
+                    Restore
+                  </DropdownMenuItem>
+                )}
+                {onPermanentDelete && currentPhoto && (
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onClick={() => { onPermanentDelete(currentPhoto); onClose(); }}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete permanently
                   </DropdownMenuItem>
                 )}
               </DropdownMenuContent>

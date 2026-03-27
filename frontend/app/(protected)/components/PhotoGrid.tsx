@@ -31,6 +31,7 @@ interface PhotoGridProps {
   onRetry?: (photo: Photo) => void;
   onUpdateRequest?: (photo: Photo) => void;
   viewMode?: "grid" | "large";
+  trashRetentionDays?: number;
 }
 
 function groupPhotosByDate(photos: Photo[]): GroupedPhotosByDate[] {
@@ -66,6 +67,7 @@ export default function PhotoGrid({
   onPhotoClick,
   onRetry,
   viewMode = "grid",
+  trashRetentionDays,
 }: PhotoGridProps) {
   const groupedPhotos = useMemo(() => groupPhotosByDate(photos), [photos]);
 
@@ -213,6 +215,33 @@ export default function PhotoGrid({
                       </div>
                     )}
 
+                    {/* Trash days remaining overlay */}
+                    {isCompleted &&
+                      trashRetentionDays != null &&
+                      photo.deletedAt && (
+                        <div className="absolute bottom-0 left-0 right-0 bg-black/80 flex items-center justify-center pointer-events-none h-1/5">
+                          <span className="text-xs text-white/80 font-medium px-2">
+                            {(() => {
+                              const deletedDate = new Date(photo.deletedAt);
+                              const expiresDate = new Date(
+                                deletedDate.getTime() +
+                                  trashRetentionDays * 86400000,
+                              );
+                              const daysLeft = Math.max(
+                                0,
+                                Math.ceil(
+                                  (expiresDate.getTime() - Date.now()) /
+                                    86400000,
+                                ),
+                              );
+                              return daysLeft === 0
+                                ? "Expires today"
+                                : `${daysLeft}d left`;
+                            })()}
+                          </span>
+                        </div>
+                      )}
+
                     {/* Actions dropdown menu */}
                     {isCompleted && (
                       <DropdownMenu>
@@ -252,8 +281,6 @@ export default function PhotoGrid({
                         </DropdownMenuContent>
                       </DropdownMenu>
                     )}
-
-
                   </div>
                 );
               })}

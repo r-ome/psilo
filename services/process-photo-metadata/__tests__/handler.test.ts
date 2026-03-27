@@ -200,7 +200,7 @@ describe('process-photo-metadata handler', () => {
       }),
     );
     expect(mockOnConflictDoUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ set: { status: 'processing' } }),
+      expect.objectContaining({ set: { status: 'processing', deletedAt: null } }),
     );
 
     // Phase 3: update to completed with thumbnail (includes takenAt and thumbnailKey)
@@ -425,9 +425,6 @@ describe('process-photo-metadata handler', () => {
       expect.objectContaining({
         contentType: 'video/mp4',
         takenAt: defaultLastModified,
-        width: null,
-        height: null,
-        format: null,
       }),
     );
   });

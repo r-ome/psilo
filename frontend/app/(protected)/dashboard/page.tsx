@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -31,6 +31,7 @@ import ImageViewer from "@/app/(protected)/components/ImageViewer";
 import DownloadModal from "@/app/(protected)/components/DownloadModal";
 import { photoService, Photo } from "@/app/lib/services/photo.service";
 import { useLoadMore } from "@/app/lib/hooks/useLoadMore";
+import { useUpload } from "@/app/context/UploadContext";
 
 export default function Page() {
   const [photos, setPhotos] = useState<Photo[]>([]);
@@ -46,6 +47,8 @@ export default function Page() {
   const [bulkUpdatePending, setBulkUpdatePending] = useState(false);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"grid" | "large">("grid");
+  const { isUploading } = useUpload();
+  const wasUploadingRef = useRef(false);
   const [storageSize, setStorageSize] = useState<{
     standardSize: number;
     glacierSize: number;
@@ -147,13 +150,17 @@ export default function Page() {
     return () => clearInterval(id);
   }, [photos]);
 
-  const handleUploadComplete = useCallback(() => {
-    setUploadDialogOpen(false);
-    setTimeout(() => {
-      loadPhotos();
-      loadStorageSize();
-    }, 2000);
-  }, [loadPhotos, loadStorageSize]);
+  useEffect(() => {
+    if (isUploading) {
+      wasUploadingRef.current = true;
+    } else if (wasUploadingRef.current) {
+      wasUploadingRef.current = false;
+      setTimeout(() => {
+        loadPhotos();
+        loadStorageSize();
+      }, 2000);
+    }
+  }, [isUploading, loadPhotos, loadStorageSize]);
 
   const handleToggleSelect = (photo: Photo) => {
     setSelectedIds((prev) => {
@@ -287,7 +294,7 @@ export default function Page() {
               <DialogHeader>
                 <DialogTitle>Upload Your Files</DialogTitle>
               </DialogHeader>
-              <FileDropZone onUploadComplete={handleUploadComplete} />
+              <FileDropZone onFilesAccepted={() => setUploadDialogOpen(false)} />
             </DialogContent>
           </Dialog>
         </div>

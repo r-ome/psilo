@@ -21,6 +21,7 @@ export interface Photo {
   storageClass: "STANDARD" | "GLACIER";
   createdAt: string | null;
   takenAt: string | null;
+  deletedAt?: string | null;
   thumbnailUrl: string | null;
   previewUrl?: string | null;
   signedUrl?: string;
@@ -63,6 +64,8 @@ export const photoService = {
     api.delete<{ message: string }>("/api/photos", { keys }),
   restorePhotos: (keys: string[]) =>
     api.post<{ message: string }>("/api/photos/trash/restore", { keys }),
+  permanentlyDeletePhotos: (keys: string[]) =>
+    api.delete<{ message: string; count: number }>("/api/photos/trash", { keys }),
   updatePhotoTakenAt: (key: string, takenAt: string | null) =>
     api.patch<Photo>(`/api/photos?key=${encodeURIComponent(key)}`, { takenAt }),
   updatePhotosTakenAt: (keys: string[], takenAt: string | null) =>

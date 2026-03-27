@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Loader2Icon } from "lucide-react";
+import { Loader2Icon, Trash2 } from "lucide-react";
 import { Button } from "@/app/components/ui/button";
 import PhotoGrid from "@/app/(protected)/components/PhotoGrid";
 import DeleteConfirmDialog from "@/app/(protected)/components/DeleteConfirmDialog";
@@ -17,6 +17,8 @@ export default function TrashPage() {
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkRestorePending, setBulkRestorePending] = useState(false);
+  const [bulkPermanentDeletePending, setBulkPermanentDeletePending] = useState(false);
+  const [singlePermanentDeletePhoto, setSinglePermanentDeletePhoto] = useState<Photo | null>(null);
 
   const loadMore = useCallback(() => {
     if (!nextCursor) return;
@@ -71,6 +73,41 @@ export default function TrashPage() {
     }
   };
 
+  const handleBulkPermanentDeleteConfirm = async () => {
+    const toDelete = photos.filter((p) => selectedIds.has(p.id));
+    setBulkPermanentDeletePending(false);
+    setSelectedIds(new Set());
+    try {
+      await photoService.permanentlyDeletePhotos(toDelete.map((p) => p.s3Key));
+      setPhotos((prev) =>
+        prev.filter((p) => !toDelete.some((d) => d.id === p.id)),
+      );
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleSingleRestore = async (photo: Photo) => {
+    try {
+      await photoService.restorePhotos([photo.s3Key]);
+      setPhotos((prev) => prev.filter((p) => p.id !== photo.id));
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleSinglePermanentDeleteConfirm = async () => {
+    if (!singlePermanentDeletePhoto) return;
+    const photo = singlePermanentDeletePhoto;
+    setSinglePermanentDeletePhoto(null);
+    try {
+      await photoService.permanentlyDeletePhotos([photo.s3Key]);
+      setPhotos((prev) => prev.filter((p) => p.id !== photo.id));
+    } catch {
+      // ignore
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex justify-center items-center py-16">
@@ -108,6 +145,15 @@ export default function TrashPage() {
                 <Button
                   variant="ghost"
                   size="sm"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => setBulkPermanentDeletePending(true)}
+                >
+                  <Trash2 className="mr-2 size-4" />
+                  Delete permanently
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={() => setSelectedIds(new Set())}
                 >
                   Clear
@@ -120,6 +166,7 @@ export default function TrashPage() {
             selectedIds={selectedIds}
             onToggleSelect={handleToggleSelect}
             onPhotoClick={setViewerIndex}
+            trashRetentionDays={30}
           />
           <div ref={sentinelRef} className="h-4" />
           {isLoadingMore && (
@@ -145,10 +192,34 @@ export default function TrashPage() {
           onCancel={() => setBulkRestorePending(false)}
         />
       )}
+      {bulkPermanentDeletePending && (
+        <DeleteConfirmDialog
+          bulkCount={selectedIds.size}
+          customTitle={`Permanently delete ${selectedIds.size} photo${selectedIds.size === 1 ? "" : "s"}?`}
+          customDescription={`This will permanently delete ${selectedIds.size} photo${selectedIds.size === 1 ? "" : "s"} from storage. This action cannot be undone.`}
+          customActionLabel="Delete permanently"
+          isDangerous={true}
+          onConfirm={handleBulkPermanentDeleteConfirm}
+          onCancel={() => setBulkPermanentDeletePending(false)}
+        />
+      )}
+      {singlePermanentDeletePhoto && (
+        <DeleteConfirmDialog
+          photo={singlePermanentDeletePhoto}
+          customTitle="Permanently delete this photo?"
+          customDescription="This will permanently delete this photo from storage. This action cannot be undone."
+          customActionLabel="Delete permanently"
+          isDangerous={true}
+          onConfirm={handleSinglePermanentDeleteConfirm}
+          onCancel={() => setSinglePermanentDeletePhoto(null)}
+        />
+      )}
       <ImageViewer
         photos={photos}
         initialIndex={viewerIndex}
         onClose={() => setViewerIndex(null)}
+        onRestore={handleSingleRestore}
+        onPermanentDelete={setSinglePermanentDeletePhoto}
       />
     </div>
   );

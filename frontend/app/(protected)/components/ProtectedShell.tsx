@@ -2,6 +2,7 @@
 
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/app/components/ui/sidebar";
 import { AppSidebar } from "./AppSidebar";
+import { UploadProgressIndicator } from "./UploadProgressIndicator";
 
 export function ProtectedShell({ children }: { children: React.ReactNode }) {
   return (
@@ -13,6 +14,7 @@ export function ProtectedShell({ children }: { children: React.ReactNode }) {
         </header>
         <main className="flex-1 p-6">{children}</main>
       </SidebarInset>
+      <UploadProgressIndicator />
     </SidebarProvider>
   );
 }
