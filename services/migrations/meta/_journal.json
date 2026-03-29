@@ -99,6 +99,41 @@
       "when": 1773388800000,
       "tag": "0013_add_preview_key",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1773561600000,
+      "tag": "0014_retrieval_link_text",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1773648000000,
+      "tag": "0015_add_phash",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1773734400000,
+      "tag": "0016_add_phash_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1773820800000,
+      "tag": "0017_batch_zip_statuses",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1774764230531,
+      "tag": "0018_add_user_plan",
+      "breakpoints": true
     }
   ]
 }

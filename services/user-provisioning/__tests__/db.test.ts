@@ -32,6 +32,8 @@ describe('insertUser', () => {
       email: 'a@b.com',
       givenName: 'John',
       familyName: 'Doe',
+      plan: 'free',
+      storageLimitBytes: 5368709120,
     });
   });
 

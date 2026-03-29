@@ -32,6 +32,7 @@ jest.mock('../../shared/db', () => ({
 
 jest.mock('../../shared/schema', () => ({
   photos: 'photos_table',
+  users: 'users_table',
 }));
 
 jest.mock('drizzle-orm', () => ({
@@ -464,6 +465,42 @@ describe('manage-photos handler', () => {
       expect(body.count).toBe(0);
       expect(s3Mock.calls()).toHaveLength(0);
       expect(mockDelete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('GET /user/profile', () => {
+    it('returns user profile for authenticated user', async () => {
+      const user = {
+        id: 'u1',
+        email: 'test@example.com',
+        givenName: 'John',
+        familyName: 'Doe',
+        plan: 'free',
+        storageLimitBytes: 5368709120,
+        createdAt: new Date().toISOString(),
+      };
+      mockSelectWhereData.push([user]);
+
+      const result = await callHandler(
+        makeEvent('GET', 'GET /user/profile', 'u1', undefined, undefined, '/user/profile'),
+      );
+
+      expect(result.statusCode).toBe(200);
+      const body = JSON.parse(result.body as string);
+      expect(body.plan).toBe('free');
+      expect(body.storageLimitBytes).toBe(5368709120);
+      expect(typeof body.storageLimitBytes).toBe('number');
+      expect(body.email).toBe('test@example.com');
+    });
+
+    it('returns 404 when user not found', async () => {
+      mockSelectWhereData.push([]);
+
+      const result = await callHandler(
+        makeEvent('GET', 'GET /user/profile', 'unknown-user', undefined, undefined, '/user/profile'),
+      );
+
+      expect(result.statusCode).toBe(404);
     });
   });
 

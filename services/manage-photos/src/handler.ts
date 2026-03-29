@@ -11,7 +11,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { getPrivateKey, cfSignedUrl } from "../../shared/cloudfront";
 import { eq, desc, sql, and, or, lt, inArray, isNull, isNotNull } from "drizzle-orm";
 import { createDb } from "../../shared/db";
-import { photos, retrievalBatches } from "../../shared/schema";
+import { photos, users, retrievalBatches } from "../../shared/schema";
 
 const s3 = new S3Client({});
 const BUCKET_NAME = process.env.BUCKET_NAME!;
@@ -33,6 +33,27 @@ export const handler = async (
   const db = createDb();
 
   if (method === "GET") {
+    if (event.rawPath?.endsWith("/user/profile")) {
+      const [user] = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, sub));
+
+      if (!user) {
+        return respond(404, { message: "User not found" });
+      }
+
+      return respond(200, {
+        id: user.id,
+        email: user.email,
+        givenName: user.givenName,
+        familyName: user.familyName,
+        plan: user.plan,
+        storageLimitBytes: Number(user.storageLimitBytes),
+        createdAt: user.createdAt,
+      });
+    }
+
     if (event.rawPath?.endsWith("/storage-size")) {
       const result = await db
         .select({

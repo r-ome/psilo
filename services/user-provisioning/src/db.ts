@@ -8,5 +8,12 @@ export async function insertUser(
   familyName: string,
 ): Promise<void> {
   const db = createDb();
-  await db.insert(users).values({ id: userId, email, givenName, familyName }).onConflictDoNothing();
+  await db.insert(users).values({
+    id: userId,
+    email,
+    givenName,
+    familyName,
+    plan: "free",
+    storageLimitBytes: 5368709120,
+  }).onConflictDoNothing();
 }

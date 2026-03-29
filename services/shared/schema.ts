@@ -4,6 +4,7 @@ import {
   uuid,
   varchar,
   integer,
+  bigint,
   timestamp,
   primaryKey,
   text,
@@ -31,6 +32,8 @@ export const users = pgTable("users", {
   email: varchar("email", { length: 255 }).notNull().unique(),
   givenName: varchar("given_name", { length: 100 }).notNull(),
   familyName: varchar("family_name", { length: 100 }).notNull(),
+  plan: varchar("plan", { length: 20 }).notNull().default("free"),
+  storageLimitBytes: bigint("storage_limit_bytes", { mode: "number" }).notNull().default(5368709120),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

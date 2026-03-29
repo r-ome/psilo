@@ -243,6 +243,9 @@ export class ApiConstruct extends Construct {
       { path: "/photos/trash/restore", methods: [POST],              integration: managePhotosIntegration },
       { path: "/photos/{key+}",        methods: [DELETE, PATCH],     integration: managePhotosIntegration },
 
+      // User
+      { path: "/user/profile",         methods: [GET],               integration: managePhotosIntegration },
+
       // Albums
       { path: "/albums",                          methods: [GET, POST],         integration: manageAlbumsIntegration },
       { path: "/albums/{albumId}",                methods: [GET, DELETE, PUT],  integration: manageAlbumsIntegration },
