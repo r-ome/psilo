@@ -28,6 +28,26 @@ import {
 
 const pricingPlans = [
   {
+    name: "On-Demand",
+    monthlyPrice: "$0.015/GB",
+    annualPrice: null,
+    annualEffective: null,
+    period: "/GB/month",
+    annualSavings: null,
+    description: "No commitment — only pay for what you use.",
+    storage: "200 GB – unlimited",
+    minimumNote: "min $3.00/mo (200 GB)",
+    features: [
+      "Pay-per-GB storage",
+      "No storage cap",
+      "Photo & video archiving",
+      "Web access",
+      "Email support",
+    ],
+    cta: "Get Started",
+    highlighted: false,
+  },
+  {
     name: "Basic",
     monthlyPrice: "$2.49",
     annualPrice: "$27.39",
@@ -36,6 +56,7 @@ const pricingPlans = [
     annualSavings: "Save $2.49",
     description: "For casual users getting started.",
     storage: "200 GB",
+    minimumNote: null,
     features: [
       "200 GB storage",
       "Photo & video archiving",
@@ -54,6 +75,7 @@ const pricingPlans = [
     annualSavings: "Save $7.49",
     description: "For photographers and regular users.",
     storage: "1 TB",
+    minimumNote: null,
     features: [
       "1 TB storage",
       "Photo & video archiving",
@@ -74,6 +96,7 @@ const pricingPlans = [
     annualSavings: "Save $13.49",
     description: "For heavy users and power archivists.",
     storage: "2 TB",
+    minimumNote: null,
     features: [
       "2 TB storage",
       "Photo & video archiving",
@@ -202,6 +225,13 @@ export default function HomePage() {
           </p>
           <div className="flex flex-wrap items-center justify-center gap-x-12 gap-y-4 text-sm">
             <div className="text-center">
+              <p className="font-semibold">PSilo On-Demand</p>
+              <p className="text-primary font-bold">$0.015/GB/mo</p>
+              <p className="text-xs text-muted-foreground">
+                Only pay-per-GB option
+              </p>
+            </div>
+            <div className="text-center">
               <p className="font-semibold">PSilo 200 GB</p>
               <p className="text-primary font-bold">$2.49/mo</p>
               <p className="text-xs text-muted-foreground">
@@ -305,14 +335,14 @@ export default function HomePage() {
             </span>
           </div>
 
-          <div className="mt-12 grid gap-8 lg:grid-cols-3">
+          <div className="mt-12 grid gap-8 lg:grid-cols-4">
             {pricingPlans.map((plan) => (
               <Card
                 key={plan.name}
-                className={`relative flex flex-col ${
+                className={`relative flex flex-col transition-colors ${
                   plan.highlighted
                     ? "border-primary bg-card shadow-lg shadow-primary/5"
-                    : "border-border bg-card"
+                    : "border-border bg-card hover:border-white"
                 }`}
               >
                 {plan.highlighted && (
@@ -324,13 +354,27 @@ export default function HomePage() {
                   <CardTitle className="text-xl">{plan.name}</CardTitle>
                   <div className="flex items-baseline gap-1">
                     <span className="text-4xl font-bold">
-                      {annual ? plan.annualEffective : plan.monthlyPrice}
+                      {annual && plan.annualEffective
+                        ? plan.annualEffective
+                        : plan.monthlyPrice}
                     </span>
-                    <span className="text-muted-foreground">/month</span>
+                    <span className="text-muted-foreground">
+                      {plan.period}
+                    </span>
                   </div>
-                  {annual && (
+                  {plan.minimumNote && (
+                    <p className="text-xs text-muted-foreground">
+                      {plan.minimumNote}
+                    </p>
+                  )}
+                  {annual && plan.annualPrice && (
                     <p className="text-xs text-muted-foreground">
                       Billed {plan.annualPrice}/year · {plan.annualSavings}
+                    </p>
+                  )}
+                  {annual && !plan.annualPrice && (
+                    <p className="text-xs text-muted-foreground">
+                      Annual billing not available
                     </p>
                   )}
                   <CardDescription className="pt-2">
