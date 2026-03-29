@@ -24,10 +24,11 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { filename, contentType, imageData } = body as {
+  const { filename, contentType, imageData, contentLength } = body as {
     filename: string;
     contentType: string;
     imageData?: string;
+    contentLength?: number;
   };
 
   if (!filename || !contentType) {
@@ -45,16 +46,18 @@ export async function POST(req: NextRequest) {
         "Content-Type": "application/json",
         Authorization: `Bearer ${idToken}`,
       },
-      body: JSON.stringify({ filename, contentType, ...(imageData ? { imageData } : {}) }),
+      body: JSON.stringify({
+        filename,
+        contentType,
+        ...(imageData ? { imageData } : {}),
+        ...(contentLength != null ? { contentLength } : {}),
+      }),
     });
 
     if (!response.ok) {
       const error = await response.json();
       logger.info({ status: response.status }, "response");
-      return NextResponse.json(
-        { message: error.message ?? "Failed to generate presigned URL" },
-        { status: response.status },
-      );
+      return NextResponse.json(error, { status: response.status });
     }
 
     const data = await response.json();

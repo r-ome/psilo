@@ -98,8 +98,18 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
         const presignResult = await s3Service.getPresignedURL({
           filename: file.name,
           contentType: file.type,
+          contentLength: file.size,
           ...(imageData ? { imageData } : {}),
         });
+
+        if (presignResult.status === "quota_exceeded") {
+          toast.error(
+            `Storage limit reached. Upgrade your plan to upload more files.`,
+            { id: "quota_exceeded", duration: 8000 },
+          );
+          setCompletedFiles((prev) => prev + 1);
+          continue;
+        }
 
         if (presignResult.status === "duplicate") {
           const bestMatch = presignResult.duplicates[0];
@@ -134,6 +144,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
           const retryResult = await s3Service.getPresignedURL({
             filename: uploadFilename,
             contentType: file.type,
+            contentLength: file.size,
           });
 
           if (retryResult.status !== "ok") {

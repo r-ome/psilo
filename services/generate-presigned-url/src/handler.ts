@@ -4,9 +4,9 @@ import {
 } from "aws-lambda";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { and, eq, isNotNull, isNull } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { createDb } from "../../shared/db";
-import { photos } from "../../shared/schema";
+import { photos, users } from "../../shared/schema";
 import { computePHash, hammingDistance } from "../../shared/phash";
 import { getPrivateKey, cfSignedUrl } from "../../shared/cloudfront";
 
@@ -22,7 +22,7 @@ export const handler = async (
   const givenName = (claims.given_name as string) ?? '';
   const familyName = (claims.family_name as string) ?? '';
   const body = JSON.parse(event.body ?? "{}");
-  const { filename, contentType, imageData } = body;
+  const { filename, contentType, imageData, contentLength } = body;
 
   if (!filename || !contentType) {
     return {
@@ -33,13 +33,42 @@ export const handler = async (
     };
   }
 
+  // Quota enforcement
+  const db = createDb();
+  const [userRow] = await db
+    .select({ plan: users.plan, storageLimitBytes: users.storageLimitBytes })
+    .from(users)
+    .where(eq(users.id, userId));
+
+  if (userRow && userRow.plan !== "on_demand" && userRow.storageLimitBytes != null) {
+    const [usageRow] = await db
+      .select({ totalBytes: sql<number>`COALESCE(SUM(${photos.size}), 0)` })
+      .from(photos)
+      .where(and(eq(photos.userId, userId), isNull(photos.deletedAt)));
+
+    const currentUsageBytes = Number(usageRow?.totalBytes ?? 0);
+    const incomingBytes = Number(contentLength ?? 0);
+
+    if (currentUsageBytes + incomingBytes > userRow.storageLimitBytes) {
+      return {
+        statusCode: 403,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: "quota_exceeded",
+          currentUsageBytes,
+          limitBytes: userRow.storageLimitBytes,
+          plan: userRow.plan,
+        }),
+      };
+    }
+  }
+
   // pHash duplicate check for images
   if (imageData && contentType.startsWith("image/")) {
     try {
       const imageBuffer = Buffer.from(imageData, "base64");
       const incomingHash = await computePHash(imageBuffer);
 
-      const db = createDb();
       const existingPhotos = await db
         .select({
           id: photos.id,

@@ -10,13 +10,15 @@ export interface DuplicatePhoto {
 
 export type PresignResponse =
   | { status: "ok"; url: string; key: string }
-  | { status: "duplicate"; duplicates: DuplicatePhoto[] };
+  | { status: "duplicate"; duplicates: DuplicatePhoto[] }
+  | { status: "quota_exceeded"; currentUsageBytes: number; limitBytes: number; plan: string };
 
 export const s3Service = {
   getPresignedURL: (body: {
     filename: string;
     contentType: string;
     imageData?: string;
+    contentLength?: number;
   }) => api.post<PresignResponse>("/api/files/upload", body),
   uploadToS3: (
     url: string,

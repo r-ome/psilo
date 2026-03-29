@@ -28,6 +28,24 @@ import {
 
 const pricingPlans = [
   {
+    name: "Free",
+    monthlyPrice: "$0",
+    annualPrice: null,
+    annualEffective: null,
+    period: "/month",
+    annualSavings: null,
+    description: "Get started with 5 GB at no cost.",
+    storage: "5 GB",
+    minimumNote: null,
+    features: [
+      "5 GB storage",
+      "Photo & video archiving",
+      "Web access",
+    ],
+    cta: "Sign up free",
+    highlighted: false,
+  },
+  {
     name: "On-Demand",
     monthlyPrice: "$0.015/GB",
     annualPrice: null,
@@ -301,7 +319,7 @@ export default function HomePage() {
             Plans and Pricing
           </h2>
           <p className="mx-auto mt-4 max-w-2xl text-center text-muted-foreground">
-            Privacy-first photo archiving. No free tier — every plan is priced
+            Privacy-first photo archiving. Start free with 5 GB — every paid plan is priced
             to be the cheapest option on the market.
           </p>
 
@@ -335,7 +353,7 @@ export default function HomePage() {
             </span>
           </div>
 
-          <div className="mt-12 grid gap-8 lg:grid-cols-4">
+          <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-5">
             {pricingPlans.map((plan) => (
               <Card
                 key={plan.name}

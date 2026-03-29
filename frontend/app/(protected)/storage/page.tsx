@@ -2,12 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { photoService, StorageSize } from "@/app/lib/services/photo.service";
+import { userService, UserProfile } from "@/app/lib/services/user.service";
 import {
   retrievalService,
   RetrievalBatch,
 } from "@/app/lib/services/retrieval.service";
 import { Loader2Icon } from "lucide-react";
 import { Card, CardContent } from "@/app/components/ui/card";
+import { StorageNudgeBanner } from "@/app/(protected)/components/StorageNudgeBanner";
 import { StorageOverviewCard } from "./components/StorageOverviewCard";
 import { StorageTierCards } from "./components/StorageTierCards";
 import { RestoreRequestsCard } from "./components/RestoreRequestsCard";
@@ -17,6 +19,7 @@ import { TotalCostCard } from "./components/TotalCostCard";
 export default function StoragePage() {
   const [storageData, setStorageData] = useState<StorageSize | null>(null);
   const [batches, setBatches] = useState<RetrievalBatch[]>([]);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,13 +29,15 @@ export default function StoragePage() {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const [storageResult, batchesResult] = await Promise.all([
+        const [storageResult, batchesResult, profileResult] = await Promise.all([
           photoService.getStorageSize(),
           retrievalService.listBatches(),
+          userService.getProfile().catch(() => null),
         ]);
         if (cancelled) return;
         setStorageData(storageResult);
         setBatches(batchesResult.batches);
+        setUserProfile(profileResult);
         setError(null);
       } catch (err) {
         if (cancelled) return;
@@ -82,6 +87,13 @@ export default function StoragePage() {
         </Card>
       ) : (
         <div className="space-y-6">
+          {userProfile && userProfile.plan !== "on_demand" && (
+            <StorageNudgeBanner
+              plan={userProfile.plan}
+              usageBytes={(storageData?.standardSize ?? 0) + (storageData?.glacierSize ?? 0)}
+              limitBytes={userProfile.storageLimitBytes}
+            />
+          )}
           <StorageOverviewCard
             storageData={storageData!}
             standardSizeGB={standardSizeGB}

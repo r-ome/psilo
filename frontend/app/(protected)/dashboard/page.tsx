@@ -30,6 +30,8 @@ import UpdateTakenAtDialog from "@/app/(protected)/components/UpdateTakenAtDialo
 import ImageViewer from "@/app/(protected)/components/ImageViewer";
 import DownloadModal from "@/app/(protected)/components/DownloadModal";
 import { photoService, Photo } from "@/app/lib/services/photo.service";
+import { userService, UserProfile } from "@/app/lib/services/user.service";
+import { StorageNudgeBanner } from "@/app/(protected)/components/StorageNudgeBanner";
 import { useLoadMore } from "@/app/lib/hooks/useLoadMore";
 import { useUpload } from "@/app/context/UploadContext";
 
@@ -57,6 +59,7 @@ export default function Page() {
     glacierPhotoCount: number;
     glacierVideoCount: number;
   } | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
 
   const totalSizeMB = useMemo(() => {
     if (!storageSize) return "0.00";
@@ -123,6 +126,7 @@ export default function Page() {
       .catch(() => {})
       .finally(() => setIsLoading(false));
     loadStorageSize();
+    userService.getProfile().then(setUserProfile).catch(() => {});
   }, [loadStorageSize]);
 
   useEffect(() => {
@@ -262,8 +266,19 @@ export default function Page() {
     );
   }
 
+  const totalUsageBytes = storageSize
+    ? storageSize.standardSize + storageSize.glacierSize
+    : 0;
+
   return (
     <div className="space-y-6 pb-8">
+      {userProfile && userProfile.plan !== "on_demand" && (
+        <StorageNudgeBanner
+          plan={userProfile.plan}
+          usageBytes={totalUsageBytes}
+          limitBytes={userProfile.storageLimitBytes}
+        />
+      )}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Photos</h1>
