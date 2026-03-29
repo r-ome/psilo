@@ -7,3 +7,22 @@ export const TIERS = {
 } as const;
 
 export type TierName = keyof typeof TIERS;
+
+export const ON_DEMAND_RATE_PER_GB = 0.015;
+export const ON_DEMAND_MIN_GB = 200;
+
+/** Cost on the On-Demand plan for a given usage, applying the 200 GB minimum. */
+export function calculateOnDemandCost(usageGB: number): number {
+  return Math.max(usageGB, ON_DEMAND_MIN_GB) * ON_DEMAND_RATE_PER_GB;
+}
+
+/**
+ * How much a user saves per month on their fixed plan vs what they'd pay on On-Demand.
+ * Returns null for on_demand (no comparison) or when the plan has no monthly price.
+ */
+export function calculatePlanSavingsVsOnDemand(plan: TierName, usageGB: number): number | null {
+  if (plan === "on_demand") return null;
+  const tierPrice = TIERS[plan].monthlyPrice;
+  if (tierPrice === null) return null;
+  return calculateOnDemandCost(usageGB) - tierPrice;
+}

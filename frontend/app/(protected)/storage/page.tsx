@@ -10,6 +10,7 @@ import {
 import { Loader2Icon } from "lucide-react";
 import { Card, CardContent } from "@/app/components/ui/card";
 import { StorageNudgeBanner } from "@/app/(protected)/components/StorageNudgeBanner";
+import { PlanOverviewCard } from "./components/PlanOverviewCard";
 import { StorageOverviewCard } from "./components/StorageOverviewCard";
 import { StorageTierCards } from "./components/StorageTierCards";
 import { RestoreRequestsCard } from "./components/RestoreRequestsCard";
@@ -92,6 +93,16 @@ export default function StoragePage() {
               plan={userProfile.plan}
               usageBytes={(storageData?.standardSize ?? 0) + (storageData?.glacierSize ?? 0)}
               limitBytes={userProfile.storageLimitBytes}
+            />
+          )}
+          {userProfile && (
+            <PlanOverviewCard
+              userProfile={userProfile}
+              standardSizeGB={standardSizeGB}
+              glacierSizeGB={glacierSizeGB}
+              glacierCost={glacierCost}
+              thumbnailCost={thumbnailCost}
+              transitionCost={transitionCost}
             />
           )}
           <StorageOverviewCard
