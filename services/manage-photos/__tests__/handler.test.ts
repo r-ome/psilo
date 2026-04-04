@@ -504,6 +504,45 @@ describe('manage-photos handler', () => {
     });
   });
 
+  describe('PATCH /user/profile', () => {
+    it('updates the authenticated user plan and storage limit', async () => {
+      const updatedUser = {
+        id: 'u1',
+        email: 'test@example.com',
+        givenName: 'John',
+        familyName: 'Doe',
+        plan: 'standard',
+        storageLimitBytes: 1_099_511_627_776,
+        createdAt: new Date().toISOString(),
+      };
+      mockReturning.mockResolvedValueOnce([updatedUser]);
+
+      const result = await callHandler(
+        makeEvent('PATCH', 'PATCH /user/profile', 'u1', undefined, { plan: 'standard' }, '/user/profile'),
+      );
+
+      expect(result.statusCode).toBe(200);
+      const body = JSON.parse(result.body as string);
+      expect(body.plan).toBe('standard');
+      expect(body.storageLimitBytes).toBe(1_099_511_627_776);
+      expect(mockUpdate).toHaveBeenCalledWith('users_table');
+      expect(mockSet).toHaveBeenCalledWith({
+        plan: 'standard',
+        storageLimitBytes: 1_099_511_627_776,
+      });
+      expect(mockUpdateWhere).toHaveBeenCalled();
+    });
+
+    it('returns 422 for an invalid plan', async () => {
+      const result = await callHandler(
+        makeEvent('PATCH', 'PATCH /user/profile', 'u1', undefined, { plan: 'gold' }, '/user/profile'),
+      );
+
+      expect(result.statusCode).toBe(422);
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+  });
+
   describe('unsupported method', () => {
     it('returns 405', async () => {
       const result = await callHandler(makeEvent('PUT', 'PUT /photos', 'u1'));

@@ -6,6 +6,12 @@ jest.mock("../config/env", () => ({
     CDK_DEFAULT_ACCOUNT: "123456789",
     CDK_DEFAULT_REGION: "ap-southeast-1",
     IS_PRODUCTION: false,
+    CLOUDFRONT_PUBLIC_KEY_PEM: `-----BEGIN PUBLIC KEY-----
+MFwwDQYJKoZIhvcNAQEBBQADSwAwSAJBALC9VQ4w9vS0Ztq8J2mR8iK1qQh6x8xv
+8m8xO3yJx4gF1d8oQHkz0RjQv0mP2x0p1N1pK0Y9C1oJQk8q3M0CAwEAAQ==
+-----END PUBLIC KEY-----`,
+    CLOUDFRONT_PRIVATE_KEY_SECRET_ARN:
+      "arn:aws:secretsmanager:ap-southeast-1:123456789:secret:psilo/cloudfront-private-key-abc123",
   },
 }));
 
@@ -104,6 +110,15 @@ describe("PsiloStack", () => {
       template.resourceCountIs("AWS::RDS::DBCluster", 1);
     });
 
+    it("uses a lower Serverless v2 capacity ceiling", () => {
+      template.hasResourceProperties("AWS::RDS::DBCluster", {
+        ServerlessV2ScalingConfiguration: {
+          MinCapacity: 0,
+          MaxCapacity: 2,
+        },
+      });
+    });
+
     it("database cluster has Data API enabled", () => {
       template.hasResourceProperties("AWS::RDS::DBCluster", {
         EnableHttpEndpoint: true,
@@ -171,6 +186,13 @@ describe("PsiloStack", () => {
     it("has GET /albums/{albumId} route", () => {
       template.hasResourceProperties("AWS::ApiGatewayV2::Route", {
         RouteKey: "GET /albums/{albumId}",
+        AuthorizationType: "JWT",
+      });
+    });
+
+    it("has PATCH /user/profile route", () => {
+      template.hasResourceProperties("AWS::ApiGatewayV2::Route", {
+        RouteKey: "PATCH /user/profile",
         AuthorizationType: "JWT",
       });
     });

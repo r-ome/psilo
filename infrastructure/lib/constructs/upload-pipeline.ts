@@ -11,6 +11,8 @@ import * as path from "path";
 import { DatabaseConstruct } from "./database";
 import { VideoPipelineConstruct } from "./video-pipeline";
 
+const useTestBundling = Boolean(process.env.JEST_WORKER_ID);
+
 interface UploadPipelineProps {
   bucket: s3.Bucket;
   database: DatabaseConstruct;
@@ -57,17 +59,22 @@ export class UploadPipelineConstruct extends Construct {
         },
         timeout: cdk.Duration.seconds(300),
         memorySize: 1536,
-        bundling: {
-          esbuildVersion: "0.21",
-          nodeModules: ["sharp"],
-          commandHooks: {
-            beforeBundling: () => [],
-            beforeInstall: () => [],
-            afterBundling: (_inputDir: string, outputDir: string) => [
-              `cd ${outputDir} && rm -rf node_modules/sharp node_modules/@img && npm install --os=linux --cpu=x64 sharp`,
-            ],
-          },
-        },
+        bundling: useTestBundling
+        ? {
+            esbuildVersion: "0.21",
+            externalModules: ["sharp", "@aws-sdk/*"],
+          }
+          : {
+              esbuildVersion: "0.21",
+              nodeModules: ["sharp"],
+              commandHooks: {
+                beforeBundling: () => [],
+                beforeInstall: () => [],
+                afterBundling: (_inputDir: string, outputDir: string) => [
+                  `cd ${outputDir} && rm -rf node_modules/sharp node_modules/@img && npm install --os=linux --cpu=x64 sharp`,
+                ],
+              },
+            },
       },
     );
     bucket.grantRead(processPhotoMetadataFn);

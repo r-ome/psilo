@@ -19,6 +19,7 @@ import { ZipPipelineConstruct } from "./zip-pipeline";
 
 const { GET, POST, DELETE, PUT, PATCH } = apigatewayv2.HttpMethod;
 const { GET: CORS_GET, POST: CORS_POST, DELETE: CORS_DELETE, PATCH: CORS_PATCH } = apigatewayv2.CorsHttpMethod;
+const useTestBundling = Boolean(process.env.JEST_WORKER_ID);
 
 interface ApiProps {
   bucket: s3.Bucket;
@@ -148,17 +149,22 @@ export class ApiConstruct extends Construct {
       },
       timeout: cdk.Duration.seconds(29),
       memorySize: 512,
-      bundling: {
-        esbuildVersion: "0.21",
-        nodeModules: ["sharp"],
-        commandHooks: {
-          beforeInstall: () => [],
-          beforeBundling: () => [],
-          afterBundling: (_inputDir: string, outputDir: string) => [
-            `cd ${outputDir} && rm -rf node_modules/sharp node_modules/@img && npm install --os=linux --cpu=x64 sharp`,
-          ],
-        },
-      },
+      bundling: useTestBundling
+        ? {
+            esbuildVersion: "0.21",
+            externalModules: ["sharp", "@aws-sdk/*"],
+          }
+        : {
+            esbuildVersion: "0.21",
+            nodeModules: ["sharp"],
+            commandHooks: {
+              beforeInstall: () => [],
+              beforeBundling: () => [],
+              afterBundling: (_inputDir: string, outputDir: string) => [
+                `cd ${outputDir} && rm -rf node_modules/sharp node_modules/@img && npm install --os=linux --cpu=x64 sharp`,
+              ],
+            },
+          },
     });
     bucket.grantPut(generatePresignedUrlFn);
     bucket.grantRead(generatePresignedUrlFn);
