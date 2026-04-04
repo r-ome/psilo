@@ -14,6 +14,8 @@ export class PsiloStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
+    cdk.Tags.of(this).add("project", "psilo");
+
     const isProd = env.IS_PRODUCTION;
 
     const storage = new StorageConstruct(this, "Storage", { isProd });

@@ -39,7 +39,7 @@ export class DatabaseConstruct extends Construct {
       }),
       writer: rds.ClusterInstance.serverlessV2("writer", { scaleWithWriter: true }),
       serverlessV2MinCapacity: 0,
-      serverlessV2MaxCapacity: 4,
+      serverlessV2MaxCapacity: 2,
       enableDataApi: true,
       credentials: rds.Credentials.fromSecret(this.secret),
       defaultDatabaseName: "psilo",
