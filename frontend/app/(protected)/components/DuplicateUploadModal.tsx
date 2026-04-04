@@ -1,4 +1,5 @@
 "use client";
+import { useEffect, useMemo } from "react";
 import Image from "next/image";
 import {
   Dialog,
@@ -31,7 +32,11 @@ const DuplicateUploadModal: React.FC<DuplicateUploadModalProps> = ({
   onSkip,
   onReplaceExisting,
 }) => {
-  const newFileUrl = URL.createObjectURL(file);
+  const newFileUrl = useMemo(() => URL.createObjectURL(file), [file]);
+
+  useEffect(() => {
+    return () => URL.revokeObjectURL(newFileUrl);
+  }, [newFileUrl]);
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onSkip(); }}>
