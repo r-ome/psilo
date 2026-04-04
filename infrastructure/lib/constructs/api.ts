@@ -133,7 +133,7 @@ export class ApiConstruct extends Construct {
     const cfEnv = {
       CLOUDFRONT_DOMAIN: cdn.cloudfrontDomain,
       CLOUDFRONT_KEY_PAIR_ID: cdn.keyPairId,
-      CLOUDFRONT_PRIVATE_KEY_SECRET_ARN: cdn.privateKeySecret.secretArn,
+      CLOUDFRONT_PRIVATE_KEY_SECRET_ARN: cdn.privateKeySecretArn,
       USE_CLOUDFRONT: "true",
     };
 
@@ -163,7 +163,12 @@ export class ApiConstruct extends Construct {
     bucket.grantPut(generatePresignedUrlFn);
     bucket.grantRead(generatePresignedUrlFn);
     database.grantAccess(generatePresignedUrlFn);
-    cdn.privateKeySecret.grantRead(generatePresignedUrlFn);
+    generatePresignedUrlFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
+        resources: [cdn.privateKeySecretArn],
+      }),
+    );
 
     const managePhotosFn = this.createFn("ManagePhotosFn", {
       service: "manage-photos",
@@ -173,7 +178,12 @@ export class ApiConstruct extends Construct {
     bucket.grantRead(managePhotosFn);
     bucket.grantDelete(managePhotosFn);
     database.grantAccess(managePhotosFn);
-    cdn.privateKeySecret.grantRead(managePhotosFn);
+    managePhotosFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
+        resources: [cdn.privateKeySecretArn],
+      }),
+    );
 
     const manageAlbumsFn = this.createFn("ManageAlbumsFn", {
       service: "manage-albums",
@@ -182,7 +192,12 @@ export class ApiConstruct extends Construct {
     });
     bucket.grantRead(manageAlbumsFn);
     database.grantAccess(manageAlbumsFn);
-    cdn.privateKeySecret.grantRead(manageAlbumsFn);
+    manageAlbumsFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
+        resources: [cdn.privateKeySecretArn],
+      }),
+    );
 
     const requestRestoreFn = this.createFn("RequestRestoreFn", {
       service: "request-restore",
@@ -244,7 +259,7 @@ export class ApiConstruct extends Construct {
       { path: "/photos/{key+}",        methods: [DELETE, PATCH],     integration: managePhotosIntegration },
 
       // User
-      { path: "/user/profile",         methods: [GET],               integration: managePhotosIntegration },
+      { path: "/user/profile",         methods: [GET, PATCH],        integration: managePhotosIntegration },
 
       // Albums
       { path: "/albums",                          methods: [GET, POST],         integration: manageAlbumsIntegration },

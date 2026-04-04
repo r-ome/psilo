@@ -7,6 +7,8 @@ export const TIERS = {
 } as const;
 
 export type TierName = keyof typeof TIERS;
+export const MANAGEABLE_TIERS = ["free", "basic", "standard", "premium"] as const;
+export type ManageableTierName = typeof MANAGEABLE_TIERS[number];
 
 export const ON_DEMAND_RATE_PER_GB = 0.015;
 export const ON_DEMAND_MIN_GB = 200;

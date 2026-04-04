@@ -1,4 +1,5 @@
 import { api } from "@/app/lib/api";
+import type { ManageableTierName } from "@/app/lib/tiers";
 
 export interface UserProfile {
   id: string;
@@ -12,4 +13,6 @@ export interface UserProfile {
 
 export const userService = {
   getProfile: () => api.get<UserProfile>("/api/user/profile"),
+  updatePlan: (plan: ManageableTierName) =>
+    api.patch<UserProfile>("/api/user/profile", { plan }),
 };

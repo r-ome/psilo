@@ -12,6 +12,11 @@ import { getPrivateKey, cfSignedUrl } from "../../shared/cloudfront";
 import { eq, desc, sql, and, or, lt, inArray, isNull, isNotNull } from "drizzle-orm";
 import { createDb } from "../../shared/db";
 import { photos, users, retrievalBatches } from "../../shared/schema";
+import {
+  MANAGEABLE_TIERS,
+  TIERS,
+  type ManageableTierName,
+} from "../../shared/tiers";
 
 const s3 = new S3Client({});
 const BUCKET_NAME = process.env.BUCKET_NAME!;
@@ -22,6 +27,14 @@ function respond(statusCode: number, body: unknown): APIGatewayProxyResultV2 {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   };
+}
+
+function getStorageLimitBytes(plan: ManageableTierName): number {
+  const limitBytes = TIERS[plan].limitBytes;
+  if (limitBytes == null) {
+    throw new Error(`Plan ${plan} does not have a storage limit`);
+  }
+  return limitBytes;
 }
 
 export const handler = async (
@@ -303,6 +316,43 @@ export const handler = async (
     );
 
     return respond(200, { photos: photosWithUrls, nextCursor });
+  }
+
+  if (method === "PATCH" && event.rawPath?.endsWith("/user/profile")) {
+    let body: unknown;
+    try {
+      body = JSON.parse(event.body ?? "{}");
+    } catch {
+      return respond(400, { message: "Invalid JSON body" });
+    }
+
+    const plan = (body as { plan?: string }).plan;
+    if (!plan || !MANAGEABLE_TIERS.includes(plan as ManageableTierName)) {
+      return respond(422, { message: "Invalid plan" });
+    }
+
+    const [updatedUser] = await db
+      .update(users)
+      .set({
+        plan,
+        storageLimitBytes: getStorageLimitBytes(plan as ManageableTierName),
+      })
+      .where(eq(users.id, sub))
+      .returning();
+
+    if (!updatedUser) {
+      return respond(404, { message: "User not found" });
+    }
+
+    return respond(200, {
+      id: updatedUser.id,
+      email: updatedUser.email,
+      givenName: updatedUser.givenName,
+      familyName: updatedUser.familyName,
+      plan: updatedUser.plan,
+      storageLimitBytes: Number(updatedUser.storageLimitBytes),
+      createdAt: updatedUser.createdAt,
+    });
   }
 
   if (method === "DELETE") {

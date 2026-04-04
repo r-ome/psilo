@@ -7,3 +7,5 @@ export const TIERS = {
 } as const;
 
 export type TierName = keyof typeof TIERS;
+export const MANAGEABLE_TIERS = ["free", "basic", "standard", "premium"] as const;
+export type ManageableTierName = typeof MANAGEABLE_TIERS[number];

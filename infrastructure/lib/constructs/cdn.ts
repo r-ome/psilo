@@ -1,7 +1,6 @@
 import * as cdk from "aws-cdk-lib";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
-import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 
@@ -15,7 +14,7 @@ interface CdnProps {
 export class CdnConstruct extends Construct {
   readonly distribution: cloudfront.Distribution;
   readonly keyGroup: cloudfront.KeyGroup;
-  readonly privateKeySecret: secretsmanager.ISecret;
+  readonly privateKeySecretArn: string;
   private readonly cfPublicKey: cloudfront.PublicKey;
 
   get cloudfrontDomain(): string {
@@ -28,11 +27,7 @@ export class CdnConstruct extends Construct {
   constructor(scope: Construct, id: string, props: CdnProps) {
     super(scope, id);
 
-    this.privateKeySecret = secretsmanager.Secret.fromSecretCompleteArn(
-      this,
-      "CfPrivateKey",
-      props.privateKeySecretArn,
-    );
+    this.privateKeySecretArn = props.privateKeySecretArn;
 
     this.cfPublicKey = new cloudfront.PublicKey(this, "CfPublicKey", {
       encodedKey: props.publicKeyPem,
