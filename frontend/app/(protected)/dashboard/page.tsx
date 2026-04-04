@@ -38,6 +38,7 @@ import { useUpload } from "@/app/context/UploadContext";
 export default function Page() {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadedCursors, setLoadedCursors] = useState<(string | null)[]>([null]);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [photoToDelete, setPhotoToDelete] = useState<Photo | null>(null);
@@ -78,15 +79,42 @@ export default function Page() {
     };
   }, [storageSize]);
 
+  const mergePhotosById = useCallback((pages: Photo[][]) => {
+    const seen = new Set<string>();
+    const merged: Photo[] = [];
+
+    for (const page of pages) {
+      for (const photo of page) {
+        if (seen.has(photo.id)) continue;
+        seen.add(photo.id);
+        merged.push(photo);
+      }
+    }
+
+    return merged;
+  }, []);
+
   const loadPhotos = useCallback(() => {
-    photoService
+    return photoService
       .listPhotos()
       .then((data) => {
         setPhotos(data.photos);
         setNextCursor(data.nextCursor);
+        setLoadedCursors([null]);
       })
       .catch(() => {});
   }, []);
+
+  const refreshLoadedPhotos = useCallback(() => {
+    Promise.all(
+      loadedCursors.map((cursor) => photoService.listPhotos(cursor ?? undefined)),
+    )
+      .then((pages) => {
+        setPhotos(mergePhotosById(pages.map((page) => page.photos)));
+        setNextCursor(pages[pages.length - 1]?.nextCursor ?? null);
+      })
+      .catch(() => {});
+  }, [loadedCursors, mergePhotosById]);
 
   const loadStorageSize = useCallback(() => {
     photoService
@@ -98,13 +126,15 @@ export default function Page() {
   }, []);
 
   const loadMore = useCallback(() => {
-    if (!nextCursor) return;
+    const cursorToLoad = nextCursor;
+    if (!cursorToLoad) return;
     setIsLoadingMore(true);
     photoService
-      .listPhotos(nextCursor)
+      .listPhotos(cursorToLoad)
       .then((data) => {
         setPhotos((prev) => [...prev, ...data.photos]);
         setNextCursor(data.nextCursor);
+        setLoadedCursors((prev) => [...prev, cursorToLoad]);
       })
       .catch(() => {})
       .finally(() => setIsLoadingMore(false));
@@ -117,17 +147,10 @@ export default function Page() {
   });
 
   useEffect(() => {
-    photoService
-      .listPhotos()
-      .then((data) => {
-        setPhotos(data.photos);
-        setNextCursor(data.nextCursor);
-      })
-      .catch(() => {})
-      .finally(() => setIsLoading(false));
+    loadPhotos().finally(() => setIsLoading(false));
     loadStorageSize();
     userService.getProfile().then(setUserProfile).catch(() => {});
-  }, [loadStorageSize]);
+  }, [loadPhotos, loadStorageSize]);
 
   useEffect(() => {
     const hasInProgress = photos.some(
@@ -135,24 +158,10 @@ export default function Page() {
     );
     if (!hasInProgress) return;
     const id = setInterval(() => {
-      photoService
-        .listPhotos()
-        .then((data) => {
-          setPhotos((prev) => {
-            const updated = data.photos.reduce(
-              (map, p) => {
-                map[p.id] = p;
-                return map;
-              },
-              {} as Record<string, Photo>,
-            );
-            return prev.map((p) => updated[p.id] ?? p);
-          });
-        })
-        .catch(() => {});
+      refreshLoadedPhotos();
     }, 3000);
     return () => clearInterval(id);
-  }, [photos]);
+  }, [photos, refreshLoadedPhotos]);
 
   useEffect(() => {
     if (isUploading) {
@@ -160,11 +169,11 @@ export default function Page() {
     } else if (wasUploadingRef.current) {
       wasUploadingRef.current = false;
       setTimeout(() => {
-        loadPhotos();
+        refreshLoadedPhotos();
         loadStorageSize();
       }, 2000);
     }
-  }, [isUploading, loadPhotos, loadStorageSize]);
+  }, [isUploading, refreshLoadedPhotos, loadStorageSize]);
 
   const handleToggleSelect = (photo: Photo) => {
     setSelectedIds((prev) => {
