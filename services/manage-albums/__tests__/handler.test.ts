@@ -157,7 +157,7 @@ describe('manage-albums handler', () => {
 
       expect(result.statusCode).toBe(200);
       const body = JSON.parse(result.body as string);
-      expect(body[0].coverUrl).toBeNull();
+      expect(body[0].coverUrls).toEqual([]);
     });
 
     it('attaches coverUrl when cover photo exists', async () => {
@@ -171,7 +171,7 @@ describe('manage-albums handler', () => {
 
       expect(result.statusCode).toBe(200);
       const body = JSON.parse(result.body as string);
-      expect(body[0].coverUrl).toBe('https://xxx.cloudfront.net/signed-url');
+      expect(body[0].coverUrls).toEqual(['https://xxx.cloudfront.net/signed-url']);
     });
   });
 
