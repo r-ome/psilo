@@ -2,8 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { cognitoService } from "@/app/lib/services/cognito.service";
 
+function normalizeNextPath(next: string | null): string {
+  if (!next) return "/";
+  if (!next.startsWith("/")) return "/";
+  if (next.startsWith("//")) return "/";
+  return next;
+}
+
 export async function GET(request: NextRequest) {
-  const next = request.nextUrl.searchParams.get("next") ?? "/";
+  const next = normalizeNextPath(request.nextUrl.searchParams.get("next"));
   const cookieStore = await cookies();
   const refreshToken = cookieStore.get("refresh_token")?.value;
 
