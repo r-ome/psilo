@@ -42,6 +42,26 @@ export const handler = async (
     return;
   }
 
+  // Only update SINGLE-batch requests (email flow owns SINGLE; zip flow owns ALBUM/MANUAL)
+  const singleBatchIds = (
+    await db
+      .select({ id: retrievalBatches.id })
+      .from(retrievalBatches)
+      .innerJoin(retrievalRequests, eq(retrievalRequests.batchId, retrievalBatches.id))
+      .where(
+        and(
+          eq(retrievalRequests.s3Key, s3Key),
+          eq(retrievalBatches.batchType, "SINGLE"),
+          not(inArray(retrievalBatches.status, ["EXPIRED", "FAILED"])),
+        ),
+      )
+  ).map((r) => r.id);
+
+  if (singleBatchIds.length === 0) {
+    console.log(`No SINGLE batch found for key: ${s3Key}, skipping email flow`);
+    return;
+  }
+
   let email: string;
   let givenName: string;
 
@@ -111,26 +131,6 @@ export const handler = async (
   // Update retrieval tracking records
   const now = new Date();
   const expiresAt = new Date(now.getTime() + RESTORE_RETENTION_DAYS * 24 * 3600 * 1000);
-
-  // Only update SINGLE-batch requests (email flow owns SINGLE; zip flow owns ALBUM/MANUAL)
-  const singleBatchIds = (
-    await db
-      .select({ id: retrievalBatches.id })
-      .from(retrievalBatches)
-      .innerJoin(retrievalRequests, eq(retrievalRequests.batchId, retrievalBatches.id))
-      .where(
-        and(
-          eq(retrievalRequests.s3Key, s3Key),
-          eq(retrievalBatches.batchType, "SINGLE"),
-          not(inArray(retrievalBatches.status, ["EXPIRED", "FAILED"])),
-        ),
-      )
-  ).map((r) => r.id);
-
-  if (singleBatchIds.length === 0) {
-    console.log(`No SINGLE batch found for key: ${s3Key}, skipping email flow`);
-    return;
-  }
 
   const updatedRequests = await db
     .update(retrievalRequests)
