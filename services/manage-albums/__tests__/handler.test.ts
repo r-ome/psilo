@@ -32,6 +32,15 @@ const mockWhereForCover = jest.fn(function() {
 const mockInnerJoin = jest.fn(() => ({ where: mockWhereForCover }));
 const mockFrom = jest.fn(() => ({ where: mockSelectWhere, innerJoin: mockInnerJoin }));
 const mockSelect = jest.fn(() => ({ from: mockFrom }));
+const mockEq = jest.fn((col, val) => ({ col, val }));
+const mockAnd = jest.fn((...args) => ({ and: args }));
+const mockOr = jest.fn((...args) => ({ or: args }));
+const mockLt = jest.fn((col, val) => ({ col, val }));
+const mockSql = jest.fn((strings, ...values) => ({ sql: strings, values }));
+const mockInArray = jest.fn((col, vals) => ({ inArray: { col, vals } }));
+const mockDesc = jest.fn((col) => ({ desc: col }));
+const mockIsNotNull = jest.fn((col) => ({ isNotNull: col }));
+const mockIsNull = jest.fn((col) => ({ isNull: col }));
 
 const mockDb = {
   insert: mockInsert,
@@ -45,21 +54,52 @@ jest.mock('../../shared/db', () => ({
 }));
 
 jest.mock('../../shared/schema', () => ({
-  albums: 'albums_table',
-  albumPhotos: 'album_photos_table',
-  photos: 'photos_table',
+  albums: {
+    id: 'albums_table.id',
+    userId: 'albums_table.userId',
+    name: 'albums_table.name',
+  },
+  albumPhotos: {
+    albumId: 'album_photos_table.albumId',
+    photoId: 'album_photos_table.photoId',
+    addedAt: 'album_photos_table.addedAt',
+  },
+  photos: {
+    id: 'photos_table.id',
+    userId: 'photos_table.userId',
+    deletedAt: 'photos_table.deletedAt',
+    thumbnailKey: 'photos_table.thumbnailKey',
+    status: 'photos_table.status',
+    takenAt: 'photos_table.takenAt',
+    createdAt: 'photos_table.createdAt',
+    s3Key: 'photos_table.s3Key',
+    contentType: 'photos_table.contentType',
+    previewKey: 'photos_table.previewKey',
+  },
 }));
 
+const albumsTable = {
+  id: 'albums_table.id',
+  userId: 'albums_table.userId',
+  name: 'albums_table.name',
+};
+
+const albumPhotosTable = {
+  albumId: 'album_photos_table.albumId',
+  photoId: 'album_photos_table.photoId',
+  addedAt: 'album_photos_table.addedAt',
+};
+
 jest.mock('drizzle-orm', () => ({
-  eq: jest.fn((col, val) => ({ col, val })),
-  and: jest.fn((...args) => ({ and: args })),
-  or: jest.fn((...args) => ({ or: args })),
-  lt: jest.fn((col, val) => ({ col, val })),
-  sql: jest.fn((strings, ...values) => ({ sql: strings, values })),
-  inArray: jest.fn((col, vals) => ({ inArray: { col, vals } })),
-  desc: jest.fn((col) => ({ desc: col })),
-  isNotNull: jest.fn((col) => ({ isNotNull: col })),
-  isNull: jest.fn((col) => ({ isNull: col })),
+  eq: mockEq,
+  and: mockAnd,
+  or: mockOr,
+  lt: mockLt,
+  sql: mockSql,
+  inArray: mockInArray,
+  desc: mockDesc,
+  isNotNull: mockIsNotNull,
+  isNull: mockIsNull,
 }));
 
 jest.mock('../../shared/cloudfront', () => ({
@@ -122,6 +162,15 @@ beforeEach(() => {
     result.orderBy = mockOrderBy;
     return result;
   });
+  mockEq.mockClear();
+  mockAnd.mockClear();
+  mockOr.mockClear();
+  mockLt.mockClear();
+  mockSql.mockClear();
+  mockInArray.mockClear();
+  mockDesc.mockClear();
+  mockIsNotNull.mockClear();
+  mockIsNull.mockClear();
 });
 
 describe('manage-albums handler', () => {
@@ -132,7 +181,7 @@ describe('manage-albums handler', () => {
       );
 
       expect(result.statusCode).toBe(201);
-      expect(mockInsert).toHaveBeenCalledWith('albums_table');
+      expect(mockInsert).toHaveBeenCalledWith(albumsTable);
       expect(mockInsertValues).toHaveBeenCalledWith({ userId: 'u1', name: 'Vacation' });
     });
 
@@ -173,6 +222,16 @@ describe('manage-albums handler', () => {
       const body = JSON.parse(result.body as string);
       expect(body[0].coverUrls).toEqual(['https://xxx.cloudfront.net/signed-url']);
     });
+
+    it('filters cover photos by album owner', async () => {
+      const userAlbums = [{ id: 'a1', name: 'Test', userId: 'u1' }];
+      mockSelectWhere.mockResolvedValueOnce(userAlbums);
+      mockOrderBy.mockResolvedValueOnce([]);
+
+      await callHandler(makeEvent('GET', 'GET /albums', 'u1'));
+
+      expect(mockEq).toHaveBeenCalledWith('photos_table.userId', 'u1');
+    });
   });
 
   describe('GET /albums/{albumId}', () => {
@@ -201,6 +260,18 @@ describe('manage-albums handler', () => {
       const body = JSON.parse(result.body as string);
       expect(body.id).toBe('a1');
     });
+
+    it('filters album contents by the caller', async () => {
+      const album = { id: 'a1', name: 'Test', userId: 'u1' };
+      mockSelectWhere.mockResolvedValueOnce([album]);
+      mockLimit.mockResolvedValueOnce([]);
+
+      await callHandler(
+        makeEvent('GET', 'GET /albums/{albumId}', 'u1', { albumId: 'a1' }),
+      );
+
+      expect(mockEq).toHaveBeenCalledWith('photos_table.userId', 'u1');
+    });
   });
 
   describe('POST /albums/{albumId}/photos', () => {
@@ -216,13 +287,26 @@ describe('manage-albums handler', () => {
 
     it('adds photo to album and returns 201', async () => {
       mockSelectWhere.mockResolvedValueOnce([{ id: 'a1', userId: 'u1' }]);
+      mockSelectWhere.mockResolvedValueOnce([{ id: 'p1', userId: 'u1' }]);
 
       const result = await callHandler(
         makeEvent('POST', 'POST /albums/{albumId}/photos', 'u1', { albumId: 'a1' }, { photoId: 'p1' }),
       );
 
       expect(result.statusCode).toBe(201);
-      expect(mockInsert).toHaveBeenCalledWith('album_photos_table');
+      expect(mockInsert).toHaveBeenCalledWith(albumPhotosTable);
+    });
+
+    it('returns 404 when photo does not belong to the caller', async () => {
+      mockSelectWhere.mockResolvedValueOnce([{ id: 'a1', userId: 'u1' }]);
+      mockSelectWhere.mockResolvedValueOnce([]);
+
+      const result = await callHandler(
+        makeEvent('POST', 'POST /albums/{albumId}/photos', 'u1', { albumId: 'a1' }, { photoId: 'p2' }),
+      );
+
+      expect(result.statusCode).toBe(404);
+      expect(mockInsert).not.toHaveBeenCalledWith(albumPhotosTable);
     });
   });
 
@@ -238,7 +322,7 @@ describe('manage-albums handler', () => {
       );
 
       expect(result.statusCode).toBe(200);
-      expect(mockDelete).toHaveBeenCalledWith('album_photos_table');
+      expect(mockDelete).toHaveBeenCalledWith(albumPhotosTable);
     });
 
     it('returns 404 when album not found', async () => {
@@ -265,8 +349,8 @@ describe('manage-albums handler', () => {
 
       expect(result.statusCode).toBe(200);
       expect(mockDelete).toHaveBeenCalledTimes(2);
-      expect(mockDelete).toHaveBeenCalledWith('album_photos_table');
-      expect(mockDelete).toHaveBeenCalledWith('albums_table');
+      expect(mockDelete).toHaveBeenCalledWith(albumPhotosTable);
+      expect(mockDelete).toHaveBeenCalledWith(albumsTable);
     });
 
     it('returns 404 when album not found', async () => {
@@ -303,7 +387,7 @@ describe('manage-albums handler', () => {
       );
 
       expect(result.statusCode).toBe(200);
-      expect(mockUpdate).toHaveBeenCalledWith('albums_table');
+      expect(mockUpdate).toHaveBeenCalledWith(albumsTable);
       const body = JSON.parse(result.body as string);
       expect(body.name).toBe('New Name');
     });

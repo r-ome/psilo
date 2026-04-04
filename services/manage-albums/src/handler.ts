@@ -53,6 +53,7 @@ async function handleGetAlbums(
     .where(
       and(
         inArray(albumPhotos.albumId, albumIds),
+        eq(photos.userId, sub),
         isNotNull(photos.thumbnailKey),
         eq(photos.status, 'completed'),
         isNull(photos.deletedAt),
@@ -101,12 +102,17 @@ async function handleGetAlbum(
 
   const cursor = event.queryStringParameters?.cursor;
   const limit = Math.min(parseInt(event.queryStringParameters?.limit ?? '30'), 100) || 30;
+  const ownedAlbumPhotosWhere = and(
+    eq(albumPhotos.albumId, albumId),
+    eq(photos.userId, sub),
+    isNull(photos.deletedAt),
+  );
 
   let photosQuery = db
     .select({ photo: photos })
     .from(albumPhotos)
     .innerJoin(photos, eq(albumPhotos.photoId, photos.id))
-    .where(and(eq(albumPhotos.albumId, albumId), isNull(photos.deletedAt)));
+    .where(ownedAlbumPhotosWhere);
 
   if (cursor) {
     try {
@@ -118,8 +124,7 @@ async function handleGetAlbum(
         .innerJoin(photos, eq(albumPhotos.photoId, photos.id))
         .where(
           and(
-            eq(albumPhotos.albumId, albumId),
-            isNull(photos.deletedAt),
+            ownedAlbumPhotosWhere,
             or(
               lt(sql`COALESCE(${photos.takenAt}, ${photos.createdAt})`, sql`${sortDate}::timestamp`),
               and(
@@ -192,6 +197,11 @@ async function handlePostAlbumPhoto(
   const body = event.body ? JSON.parse(event.body) : {};
   const { photoId } = body as { photoId: string };
   if (!photoId) return respond(400, { message: 'photoId is required' });
+
+  const [photo] = await db.select().from(photos).where(
+    and(eq(photos.id, photoId), eq(photos.userId, sub), isNull(photos.deletedAt)),
+  );
+  if (!photo) return respond(404, { message: 'Photo not found' });
 
   await db.insert(albumPhotos).values({ albumId, photoId }).onConflictDoNothing();
   return respond(201, { message: 'Photo added to album' });
