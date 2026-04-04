@@ -14,6 +14,7 @@ export function UploadProgressIndicator() {
     isUploading,
     totalFiles,
     completedFiles,
+    activeUploads,
     currentFileName,
     fileProgresses,
   } = useUpload();
@@ -21,15 +22,20 @@ export function UploadProgressIndicator() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [minimized, setMinimized] = useState(false);
 
-  const currentFileProgress = currentFileName
-    ? (fileProgresses[currentFileName] ?? 0)
-    : 0;
-  const overallPercent =
+  const overallProgress =
     totalFiles > 0
-      ? Math.round(
-          ((completedFiles + currentFileProgress / 100) / totalFiles) * 100,
-        )
+      ? Object.values(fileProgresses).reduce((sum, progress) => sum + progress, 0) /
+        totalFiles
       : 0;
+  const overallPercent =
+    totalFiles > 0 ? Math.round(overallProgress) : 0;
+  const activeLabel =
+    activeUploads > 1
+      ? `${activeUploads} files uploading`
+      : activeUploads === 1
+        ? currentFileName
+        : null;
+  const uploadingCount = Math.min(completedFiles + activeUploads, totalFiles);
 
   // Transition: idle → uploading when upload starts
   if (isUploading && phase !== "uploading") {
@@ -73,7 +79,7 @@ export function UploadProgressIndicator() {
           className="flex w-full items-center justify-between p-3"
         >
           <span className="text-sm font-medium">
-            Uploading {completedFiles + 1} of {totalFiles}
+            Uploading {uploadingCount} of {totalFiles}
           </span>
           <ChevronUp className="h-4 w-4 text-muted-foreground" />
         </button>
@@ -88,7 +94,7 @@ export function UploadProgressIndicator() {
     <Card className="fixed bottom-4 right-4 z-50 w-72 p-4 shadow-lg">
       <div className="flex items-center justify-between mb-2">
         <span className="text-sm font-medium">
-          Uploading {Math.min(completedFiles + 1, totalFiles)} of {totalFiles}
+          Uploading {uploadingCount} of {totalFiles}
         </span>
         <div className="flex items-center gap-1">
           <span className="text-xs text-muted-foreground">
@@ -103,9 +109,9 @@ export function UploadProgressIndicator() {
           </Button>
         </div>
       </div>
-      {currentFileName && (
+      {activeLabel && (
         <p className="text-xs text-muted-foreground truncate mb-2">
-          {currentFileName}
+          {activeLabel}
         </p>
       )}
       <Progress value={overallPercent} />
