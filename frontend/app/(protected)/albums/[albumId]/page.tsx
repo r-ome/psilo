@@ -161,7 +161,6 @@ export default function AlbumDetailPage({
   const handleRemoveConfirm = async () => {
     if (!photoToRemove) return;
     const id = photoToRemove.id;
-    setPhotoToRemove(null);
     try {
       await albumService.removePhotoFromAlbum(albumId, id);
       setAlbumPhotos((prev) => prev.filter((p) => p.id !== id));
@@ -170,15 +169,14 @@ export default function AlbumDetailPage({
         next.delete(id);
         return next;
       });
+      setPhotoToRemove(null);
     } catch {
-      // ignore
+      toast.error("Failed to remove photo from album. Please try again.");
     }
   };
 
   const handleBulkRemoveConfirm = async () => {
     const toRemove = albumPhotos.filter((p) => selectedIds.has(p.id));
-    setBulkRemovePending(false);
-    setSelectedIds(new Set());
     try {
       await Promise.all(
         toRemove.map((p) => albumService.removePhotoFromAlbum(albumId, p.id)),
@@ -186,8 +184,10 @@ export default function AlbumDetailPage({
       setAlbumPhotos((prev) =>
         prev.filter((p) => !toRemove.some((r) => r.id === p.id)),
       );
+      setBulkRemovePending(false);
+      setSelectedIds(new Set());
     } catch {
-      // ignore
+      toast.error("Failed to remove selected photos. Please try again.");
     }
   };
 
@@ -209,23 +209,27 @@ export default function AlbumDetailPage({
           albumService.addPhotoToAlbum(albumId, id),
         ),
       );
-      await loadAlbum();
-    } catch {
-      // ignore
-    } finally {
-      setIsAddingPhotos(false);
+      try {
+        await loadAlbum();
+      } catch {
+        toast.error("Photos were added, but the album did not refresh. Please reload.");
+      }
       setShowPicker(false);
       setPickerSelectedIds(new Set());
+    } catch {
+      toast.error("Failed to add photos to album. Please try again.");
+    } finally {
+      setIsAddingPhotos(false);
     }
   };
 
   const handleDeleteAlbum = async () => {
-    setAlbumDeletePending(false);
     try {
       await albumService.deleteAlbum(albumId);
+      setAlbumDeletePending(false);
       router.push("/dashboard");
     } catch {
-      // ignore
+      toast.error("Failed to delete album. Please try again.");
     }
   };
 
@@ -241,7 +245,7 @@ export default function AlbumDetailPage({
         ),
       );
     } catch {
-      // ignore
+      toast.error("Failed to update date. Please try again.");
     }
   };
 
@@ -257,11 +261,10 @@ export default function AlbumDetailPage({
           toUpdate.some((u) => u.id === p.id) ? { ...p, takenAt } : p,
         ),
       );
-    } catch {
-      // ignore
-    } finally {
       setBulkUpdatePending(false);
       setSelectedIds(new Set());
+    } catch {
+      toast.error("Failed to update dates. Please try again.");
     }
   };
 
