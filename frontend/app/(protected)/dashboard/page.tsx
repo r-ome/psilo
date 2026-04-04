@@ -34,11 +34,19 @@ import { userService, UserProfile } from "@/app/lib/services/user.service";
 import { StorageNudgeBanner } from "@/app/(protected)/components/StorageNudgeBanner";
 import { useLoadMore } from "@/app/lib/hooks/useLoadMore";
 import { useUpload } from "@/app/context/UploadContext";
+import { toast } from "sonner";
+import {
+  flattenPages,
+  getRefreshablePages,
+  isPhotoInProgress,
+  LoadedPage,
+  mergePagesByCursor,
+} from "@/app/(protected)/dashboard/dashboard-utils";
 
 export default function Page() {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [loadedCursors, setLoadedCursors] = useState<(string | null)[]>([null]);
+  const [loadedPages, setLoadedPages] = useState<LoadedPage[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [photoToDelete, setPhotoToDelete] = useState<Photo | null>(null);
@@ -79,42 +87,52 @@ export default function Page() {
     };
   }, [storageSize]);
 
-  const mergePhotosById = useCallback((pages: Photo[][]) => {
-    const seen = new Set<string>();
-    const merged: Photo[] = [];
-
-    for (const page of pages) {
-      for (const photo of page) {
-        if (seen.has(photo.id)) continue;
-        seen.add(photo.id);
-        merged.push(photo);
-      }
-    }
-
-    return merged;
+  const syncLoadedPages = useCallback((pages: LoadedPage[]) => {
+    setLoadedPages(pages);
+    setPhotos(flattenPages(pages));
+    setNextCursor(pages.at(-1)?.nextCursor ?? null);
   }, []);
 
   const loadPhotos = useCallback(() => {
     return photoService
       .listPhotos()
       .then((data) => {
-        setPhotos(data.photos);
-        setNextCursor(data.nextCursor);
-        setLoadedCursors([null]);
+        syncLoadedPages([
+          {
+            cursor: null,
+            photos: data.photos,
+            nextCursor: data.nextCursor,
+          },
+        ]);
       })
       .catch(() => {});
-  }, []);
+  }, [syncLoadedPages]);
 
   const refreshLoadedPhotos = useCallback(() => {
+    const refreshTargets = getRefreshablePages(loadedPages);
+    if (refreshTargets.length === 0) return;
+
     Promise.all(
-      loadedCursors.map((cursor) => photoService.listPhotos(cursor ?? undefined)),
+      refreshTargets.map((page) =>
+        photoService.listPhotos(page.cursor ?? undefined),
+      ),
     )
       .then((pages) => {
-        setPhotos(mergePhotosById(pages.map((page) => page.photos)));
-        setNextCursor(pages[pages.length - 1]?.nextCursor ?? null);
+        const refreshedPages = pages.map((page, index) => ({
+          cursor: refreshTargets[index].cursor,
+          photos: page.photos,
+          nextCursor: page.nextCursor,
+        }));
+
+        setLoadedPages((prevPages) => {
+          const nextPages = mergePagesByCursor(prevPages, refreshedPages);
+          setPhotos(flattenPages(nextPages));
+          setNextCursor(nextPages.at(-1)?.nextCursor ?? null);
+          return nextPages;
+        });
       })
       .catch(() => {});
-  }, [loadedCursors, mergePhotosById]);
+  }, [loadedPages]);
 
   const loadStorageSize = useCallback(() => {
     photoService
@@ -134,7 +152,14 @@ export default function Page() {
       .then((data) => {
         setPhotos((prev) => [...prev, ...data.photos]);
         setNextCursor(data.nextCursor);
-        setLoadedCursors((prev) => [...prev, cursorToLoad]);
+        setLoadedPages((prev) => [
+          ...prev,
+          {
+            cursor: cursorToLoad,
+            photos: data.photos,
+            nextCursor: data.nextCursor,
+          },
+        ]);
       })
       .catch(() => {})
       .finally(() => setIsLoadingMore(false));
@@ -153,15 +178,15 @@ export default function Page() {
   }, [loadPhotos, loadStorageSize]);
 
   useEffect(() => {
-    const hasInProgress = photos.some(
-      (p) => p.status === "pending" || p.status === "processing",
+    const hasInProgress = loadedPages.some((page) =>
+      page.photos.some(isPhotoInProgress),
     );
     if (!hasInProgress) return;
     const id = setInterval(() => {
       refreshLoadedPhotos();
     }, 3000);
     return () => clearInterval(id);
-  }, [photos, refreshLoadedPhotos]);
+  }, [loadedPages, refreshLoadedPhotos]);
 
   useEffect(() => {
     if (isUploading) {
@@ -187,18 +212,24 @@ export default function Page() {
   const handleDeleteConfirm = async () => {
     if (!photoToDelete) return;
     const key = photoToDelete.s3Key;
-    setPhotoToDelete(null);
     try {
       await photoService.deletePhoto(key);
       setPhotos((prev) => prev.filter((p) => p.s3Key !== key));
+      setLoadedPages((prev) =>
+        prev.map((page) => ({
+          ...page,
+          photos: page.photos.filter((p) => p.s3Key !== key),
+        })),
+      );
       setSelectedIds((prev) => {
         const next = new Set(prev);
         next.delete(photoToDelete.id);
         return next;
       });
+      setPhotoToDelete(null);
       loadStorageSize();
     } catch {
-      // ignore
+      toast.error("Failed to delete photo. Please try again.");
     }
   };
 
@@ -207,11 +238,17 @@ export default function Page() {
       try {
         await photoService.deletePhoto(photo.s3Key);
         setPhotos((prev) => prev.filter((p) => p.id !== photo.id));
+        setLoadedPages((prev) =>
+          prev.map((page) => ({
+            ...page,
+            photos: page.photos.filter((p) => p.id !== photo.id),
+          })),
+        );
         loadStorageSize();
+        setUploadDialogOpen(true);
       } catch {
-        // ignore
+        toast.error("Failed to retry this photo. Please try again.");
       }
-      setUploadDialogOpen(true);
     },
     [loadStorageSize],
   );
@@ -227,8 +264,16 @@ export default function Page() {
           p.s3Key === updated.s3Key ? { ...p, takenAt: updated.takenAt } : p,
         ),
       );
+      setLoadedPages((prev) =>
+        prev.map((page) => ({
+          ...page,
+          photos: page.photos.map((p) =>
+            p.s3Key === updated.s3Key ? { ...p, takenAt: updated.takenAt } : p,
+          ),
+        })),
+      );
     } catch {
-      // ignore
+      toast.error("Failed to update date. Please try again.");
     }
   };
 
@@ -244,26 +289,39 @@ export default function Page() {
           toUpdate.some((u) => u.id === p.id) ? { ...p, takenAt } : p,
         ),
       );
-    } catch {
-      // ignore
-    } finally {
+      setLoadedPages((prev) =>
+        prev.map((page) => ({
+          ...page,
+          photos: page.photos.map((p) =>
+            toUpdate.some((u) => u.id === p.id) ? { ...p, takenAt } : p,
+          ),
+        })),
+      );
       setBulkUpdatePending(false);
       setSelectedIds(new Set());
+    } catch {
+      toast.error("Failed to update dates. Please try again.");
     }
   };
 
   const handleBulkDeleteConfirm = async () => {
     const toDelete = photos.filter((p) => selectedIds.has(p.id));
-    setBulkDeletePending(false);
-    setSelectedIds(new Set());
     try {
       await photoService.deletePhotos(toDelete.map((p) => p.s3Key));
       setPhotos((prev) =>
         prev.filter((p) => !toDelete.some((d) => d.id === p.id)),
       );
+      setLoadedPages((prev) =>
+        prev.map((page) => ({
+          ...page,
+          photos: page.photos.filter((p) => !toDelete.some((d) => d.id === p.id)),
+        })),
+      );
+      setBulkDeletePending(false);
+      setSelectedIds(new Set());
       loadStorageSize();
     } catch {
-      // ignore
+      toast.error("Failed to delete selected photos. Please try again.");
     }
   };
 
