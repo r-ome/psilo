@@ -8,13 +8,14 @@ import {
   type PresignResponse,
 } from "@/app/lib/services/s3.service";
 import { api } from "@/app/lib/api";
-import { getImageDataForHash } from "@/app/lib/utils/image-hash";
+import { getImageHashData, hammingDistance } from "@/app/lib/utils/image-hash";
 import DuplicateUploadModal from "@/app/(protected)/components/DuplicateUploadModal";
 
 interface PendingDuplicate {
   file: File;
   duplicate: DuplicatePhoto;
   resolve: (action: "keepBoth" | "skip" | "replace") => void;
+  cleanup?: () => void;
 }
 
 type UploadContextValue = {
@@ -44,20 +45,18 @@ type UploadItem = {
   file: File;
 };
 
-type PreflightSuccess = {
+type ReviewedUpload = {
   item: UploadItem;
-  presignResult: PresignResponse;
+  uploadFilename: string;
 };
 
-type DuplicatePreflight = {
+type ApprovedBatchImage = {
   item: UploadItem;
-  presignResult: Extract<PresignResponse, { status: "duplicate" }>;
+  uploadFilename: string;
+  perceptualHash: string;
 };
 
-type PreflightFailure = {
-  item: UploadItem;
-  error: unknown;
-};
+const SAME_BATCH_DUPLICATE_THRESHOLD = 10;
 
 function uniqueFilename(filename: string, existingFilenames: string[]): string {
   if (!existingFilenames.includes(filename)) return filename;
@@ -85,15 +84,17 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
   const askAboutDuplicate = (
     file: File,
     duplicate: DuplicatePhoto,
+    cleanup?: () => void,
   ): Promise<"keepBoth" | "skip" | "replace"> => {
     return new Promise((resolve) => {
-      setPendingDuplicate({ file, duplicate, resolve });
+      setPendingDuplicate({ file, duplicate, resolve, cleanup });
     });
   };
 
   const handleDuplicateResolved = (action: "keepBoth" | "skip" | "replace") => {
     if (pendingDuplicate) {
       pendingDuplicate.resolve(action);
+      pendingDuplicate.cleanup?.();
       setPendingDuplicate(null);
     }
   };
@@ -118,27 +119,6 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
 
     (async () => {
       try {
-        const preflightResults = await Promise.all(
-          uploadItems.map(async (item): Promise<PreflightSuccess | PreflightFailure> => {
-            try {
-              const imageData = await getImageDataForHash(item.file);
-              const presignResult = await s3Service.getPresignedURL({
-                filename: item.file.name,
-                contentType: item.file.type,
-                contentLength: item.file.size,
-                ...(imageData ? { imageData } : {}),
-              });
-
-              return { item, presignResult };
-            } catch (error) {
-              return { item, error };
-            }
-          }),
-        );
-
-        const uploadTasks: Promise<void>[] = [];
-        const duplicateTasks: DuplicatePreflight[] = [];
-
         const markFileComplete = (item: UploadItem) => {
           setFileProgresses((prev) => ({ ...prev, [item.id]: 100 }));
           setCompletedFiles((prev) => prev + 1);
@@ -164,101 +144,166 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
           }
         };
 
-        const processDuplicate = async (
-          item: UploadItem,
-          presignResult: Extract<PresignResponse, { status: "duplicate" }>,
-        ) => {
-          const bestMatch = presignResult.duplicates[0];
-          if (!bestMatch) {
-            toast.error(`Failed to get upload URL for ${item.file.name}`);
-            markFileComplete(item);
-            return;
-          }
+        const reviewedUploads: ReviewedUpload[] = [];
+        const approvedBatchImages: ApprovedBatchImage[] = [];
 
-          const action = await askAboutDuplicate(item.file, bestMatch);
-
-          if (action === "skip") {
-            markFileComplete(item);
-            return;
-          }
-
-          if (action === "replace") {
-            try {
-              await api.delete("/api/photos", {
-                keys: presignResult.duplicates.map((d) => d.s3Key),
-              });
-            } catch (error) {
-              console.error("Failed to delete existing photo:", error);
-              toast.error(`Failed to replace existing photo for ${item.file.name}`);
-              markFileComplete(item);
-              return;
-            }
-          }
-
-          const uploadFilename =
-            action === "keepBoth"
-              ? uniqueFilename(
-                  item.file.name,
-                  presignResult.duplicates.map((d) => d.filename),
-                )
-              : item.file.name;
+        for (const item of uploadItems) {
+          setCurrentFileName(item.file.name);
 
           try {
-            const retryResult = await s3Service.getPresignedURL({
+            const hashData = await getImageHashData(item.file);
+            let uploadFilename = item.file.name;
+
+            const localDuplicate = hashData
+              ? approvedBatchImages
+                  .map((candidate) => ({
+                    candidate,
+                    distance: hammingDistance(
+                      hashData.perceptualHash,
+                      candidate.perceptualHash,
+                    ),
+                  }))
+                  .filter(
+                    ({ distance }) => distance <= SAME_BATCH_DUPLICATE_THRESHOLD,
+                  )
+                  .sort((a, b) => a.distance - b.distance)[0]
+              : undefined;
+
+            if (localDuplicate) {
+              const previewUrl = URL.createObjectURL(localDuplicate.candidate.item.file);
+              const action = await askAboutDuplicate(
+                item.file,
+                {
+                  id: localDuplicate.candidate.item.id,
+                  filename: localDuplicate.candidate.uploadFilename,
+                  thumbnailUrl: previewUrl,
+                  s3Key: `batch:${localDuplicate.candidate.item.id}`,
+                  distance: localDuplicate.distance,
+                },
+                () => URL.revokeObjectURL(previewUrl),
+              );
+
+              if (action === "skip") {
+                markFileComplete(item);
+                continue;
+              }
+
+              if (action === "replace") {
+                const approvedIndex = reviewedUploads.findIndex(
+                  (upload) => upload.item.id === localDuplicate.candidate.item.id,
+                );
+                if (approvedIndex !== -1) {
+                  const [removedUpload] = reviewedUploads.splice(approvedIndex, 1);
+                  approvedBatchImages.splice(
+                    approvedBatchImages.findIndex(
+                      (candidate) =>
+                        candidate.item.id === localDuplicate.candidate.item.id,
+                    ),
+                    1,
+                  );
+                  markFileComplete(removedUpload.item);
+                }
+              }
+
+              if (action === "keepBoth") {
+                uploadFilename = uniqueFilename(
+                  item.file.name,
+                  reviewedUploads.map((upload) => upload.uploadFilename),
+                );
+              }
+            }
+
+            const presignResult = await s3Service.getPresignedURL({
               filename: uploadFilename,
               contentType: item.file.type,
               contentLength: item.file.size,
+              ...(hashData ? { imageData: hashData.imageData } : {}),
             });
 
-            if (retryResult.status !== "ok") {
-              toast.error(`Failed to get upload URL for ${item.file.name}`);
+            if (presignResult.status === "quota_exceeded") {
+              toast.error(
+                `Storage limit reached. Upgrade your plan to upload more files.`,
+                { id: "quota_exceeded", duration: 8000 },
+              );
               markFileComplete(item);
-              return;
+              continue;
             }
 
-            await uploadWithProgress(item, retryResult.url);
+            if (presignResult.status === "duplicate") {
+              const bestMatch = presignResult.duplicates[0];
+              if (!bestMatch) {
+                toast.error(`Failed to get upload URL for ${item.file.name}`);
+                markFileComplete(item);
+                continue;
+              }
+
+              const action = await askAboutDuplicate(item.file, bestMatch);
+
+              if (action === "skip") {
+                markFileComplete(item);
+                continue;
+              }
+
+              if (action === "replace") {
+                try {
+                  await api.delete("/api/photos", {
+                    keys: presignResult.duplicates.map((duplicate) => duplicate.s3Key),
+                  });
+                } catch (error) {
+                  console.error("Failed to delete existing photo:", error);
+                  toast.error(`Failed to replace existing photo for ${item.file.name}`);
+                  markFileComplete(item);
+                  continue;
+                }
+              }
+
+              if (action === "keepBoth") {
+                uploadFilename = uniqueFilename(
+                  item.file.name,
+                  [
+                    ...reviewedUploads.map((upload) => upload.uploadFilename),
+                    ...presignResult.duplicates.map((duplicate) => duplicate.filename),
+                  ],
+                );
+              }
+            }
+
+            reviewedUploads.push({ item, uploadFilename });
+            if (hashData) {
+              approvedBatchImages.push({
+                item,
+                uploadFilename,
+                perceptualHash: hashData.perceptualHash,
+              });
+            }
           } catch (error) {
-            console.error(`Failed to upload duplicate ${item.file.name}:`, error);
-            toast.error(`Failed to upload ${item.file.name}`);
+            console.error(`Preflight failed for ${item.file.name}:`, error);
+            toast.error(`Failed to prepare ${item.file.name} for upload`);
             markFileComplete(item);
           }
-        };
-
-        for (const result of preflightResults) {
-          if ("error" in result) {
-            console.error(`Preflight failed for ${result.item.file.name}:`, result.error);
-            toast.error(`Failed to prepare ${result.item.file.name} for upload`);
-            markFileComplete(result.item);
-            continue;
-          }
-
-          if (result.presignResult.status === "quota_exceeded") {
-            toast.error(
-              `Storage limit reached. Upgrade your plan to upload more files.`,
-              { id: "quota_exceeded", duration: 8000 },
-            );
-            markFileComplete(result.item);
-            continue;
-          }
-
-          if (result.presignResult.status === "duplicate") {
-            duplicateTasks.push({
-              item: result.item,
-              presignResult: result.presignResult,
-            });
-            continue;
-          }
-
-          uploadTasks.push(uploadWithProgress(result.item, result.presignResult.url));
         }
 
-        const duplicateQueue = (async () => {
-          for (const result of duplicateTasks) {
-            await processDuplicate(result.item, result.presignResult);
-          }
-        })();
+        for (const reviewedUpload of reviewedUploads) {
+          try {
+            const presignResult = await s3Service.getPresignedURL({
+              filename: reviewedUpload.uploadFilename,
+              contentType: reviewedUpload.item.file.type,
+              contentLength: reviewedUpload.item.file.size,
+            });
 
-        await Promise.all([Promise.all(uploadTasks), duplicateQueue]);
+            if (presignResult.status !== "ok") {
+              toast.error(`Failed to get upload URL for ${reviewedUpload.item.file.name}`);
+              markFileComplete(reviewedUpload.item);
+              continue;
+            }
+
+            await uploadWithProgress(reviewedUpload.item, presignResult.url);
+          } catch (error) {
+            console.error(`Failed to upload ${reviewedUpload.item.file.name}:`, error);
+            toast.error(`Failed to upload ${reviewedUpload.item.file.name}`);
+            markFileComplete(reviewedUpload.item);
+          }
+        }
       } catch (err) {
         console.error("Upload failed:", err);
         toast.error("Upload failed. Please try again.");
