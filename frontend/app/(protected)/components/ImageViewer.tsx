@@ -93,6 +93,19 @@ export default function ImageViewer({
   const getVersionPreviewUrl = (photo: Photo) =>
     photo.thumbnailUrl ?? photo.previewUrl ?? photo.signedUrl ?? null;
   const mediaClass = "max-h-full max-w-full w-auto h-auto object-contain mx-auto";
+  const formatTimestamp = (value: string | null) => {
+    if (!value) return null;
+
+    return new Date(value).toLocaleString(undefined, {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  };
+  const createdAtLabel = formatTimestamp(displayedPhoto?.createdAt ?? null);
+  const uploadedAtLabel = formatTimestamp(displayedPhoto?.takenAt ?? null);
   const handleViewerKeyDownCapture = (
     event: React.KeyboardEvent<HTMLDivElement>,
   ) => {
@@ -266,25 +279,18 @@ export default function ImageViewer({
 
         <div className="h-16 shrink-0 flex items-center justify-between gap-2 text-sm text-white/70 px-6">
           {displayedPhoto && (
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-x-3 gap-y-1">
               <span>{displayedPhoto.filename}</span>
               {displayedPhoto.size != null && (
                 <span>
                   · {(displayedPhoto.size / (1024 * 1024)).toFixed(2)} MB
                 </span>
               )}
-              {displayedPhoto.createdAt && (
-                <span>
-                  ·{" "}
-                  {new Date(displayedPhoto.createdAt).toLocaleDateString(
-                    undefined,
-                    {
-                      year: "numeric",
-                      month: "long",
-                      day: "numeric",
-                    },
-                  )}
-                </span>
+              {createdAtLabel && (
+                <span>· Uploaded on: {createdAtLabel}</span>
+              )}
+              {uploadedAtLabel && (
+                <span>· Taken on: {uploadedAtLabel}</span>
               )}
             </div>
           )}
