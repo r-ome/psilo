@@ -41,6 +41,7 @@ import {
   isPhotoInProgress,
   LoadedPage,
   mergePagesByCursor,
+  reloadPagesFromStart,
 } from "@/app/(protected)/dashboard/dashboard-utils";
 
 export default function Page() {
@@ -134,6 +135,15 @@ export default function Page() {
       .catch(() => {});
   }, [loadedPages]);
 
+  const reloadVisiblePages = useCallback(() => {
+    const pageCount = Math.max(loadedPages.length, 1);
+    reloadPagesFromStart(pageCount, photoService.listPhotos)
+      .then((pages) => {
+        syncLoadedPages(pages);
+      })
+      .catch(() => {});
+  }, [loadedPages.length, syncLoadedPages]);
+
   const loadStorageSize = useCallback(() => {
     photoService
       .getStorageSize()
@@ -194,11 +204,11 @@ export default function Page() {
     } else if (wasUploadingRef.current) {
       wasUploadingRef.current = false;
       setTimeout(() => {
-        refreshLoadedPhotos();
+        reloadVisiblePages();
         loadStorageSize();
       }, 2000);
     }
-  }, [isUploading, refreshLoadedPhotos, loadStorageSize]);
+  }, [isUploading, reloadVisiblePages, loadStorageSize]);
 
   const handleToggleSelect = (photo: Photo) => {
     setSelectedIds((prev) => {

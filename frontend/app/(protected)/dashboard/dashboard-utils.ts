@@ -1,4 +1,4 @@
-import { Photo } from "@/app/lib/services/photo.service";
+import { PaginatedPhotos, Photo } from "@/app/lib/services/photo.service";
 
 export interface LoadedPage {
   cursor: string | null;
@@ -40,4 +40,26 @@ export function flattenPages(pages: LoadedPage[]) {
   }
 
   return merged;
+}
+
+export async function reloadPagesFromStart(
+  pageCount: number,
+  listPhotos: (cursor?: string) => Promise<PaginatedPhotos>,
+): Promise<LoadedPage[]> {
+  const pages: LoadedPage[] = [];
+  let cursor: string | null = null;
+
+  for (let index = 0; index < pageCount; index++) {
+    const page = await listPhotos(cursor ?? undefined);
+    pages.push({
+      cursor,
+      photos: page.photos,
+      nextCursor: page.nextCursor,
+    });
+
+    if (!page.nextCursor) break;
+    cursor = page.nextCursor;
+  }
+
+  return pages;
 }

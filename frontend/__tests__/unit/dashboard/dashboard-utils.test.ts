@@ -2,6 +2,7 @@ import {
   flattenPages,
   getRefreshablePages,
   mergePagesByCursor,
+  reloadPagesFromStart,
 } from "@/app/(protected)/dashboard/dashboard-utils";
 import type { Photo } from "@/app/lib/services/photo.service";
 
@@ -70,5 +71,26 @@ describe("dashboard utils", () => {
     ];
 
     expect(flattenPages(pages).map((photo) => photo.id)).toEqual(["p1", "p2"]);
+  });
+
+  it("reloads the current number of pages from the start to avoid stale cursors", async () => {
+    const listPhotos = vi
+      .fn()
+      .mockResolvedValueOnce({
+        photos: [makePhoto("new-1", "completed"), makePhoto("new-2", "completed")],
+        nextCursor: "next-page",
+      })
+      .mockResolvedValueOnce({
+        photos: [makePhoto("old-1", "completed"), makePhoto("old-2", "completed")],
+        nextCursor: null,
+      });
+
+    const pages = await reloadPagesFromStart(2, listPhotos);
+
+    expect(listPhotos).toHaveBeenNthCalledWith(1, undefined);
+    expect(listPhotos).toHaveBeenNthCalledWith(2, "next-page");
+    expect(pages.map((page) => page.cursor)).toEqual([null, "next-page"]);
+    expect(pages[0]?.photos.map((photo) => photo.id)).toEqual(["new-1", "new-2"]);
+    expect(pages[1]?.photos.map((photo) => photo.id)).toEqual(["old-1", "old-2"]);
   });
 });
