@@ -33,6 +33,28 @@ type GoogleTakeoutSidecar = {
   };
 };
 
+const EDITED_SUFFIX_PATTERN = /(?:[-_ ]edited)(?:\(\d+\))?$/i;
+
+function splitFilename(filename: string) {
+  const lastDot = filename.lastIndexOf(".");
+
+  if (lastDot === -1) {
+    return { base: filename, extension: "" };
+  }
+
+  return {
+    base: filename.slice(0, lastDot),
+    extension: filename.slice(lastDot + 1),
+  };
+}
+
+function getCanonicalSiblingFilename(filename: string): string {
+  const { base, extension } = splitFilename(filename);
+  const canonicalBase = base.replace(EDITED_SUFFIX_PATTERN, "");
+
+  return extension ? `${canonicalBase}.${extension}` : canonicalBase;
+}
+
 function extractTakenAtFromFilename(filename: string): Date | null {
   // macOS screenshot: "Screenshot 2026-03-05 at 17-33-19 .png"
   const macScreenshot = filename.match(
@@ -54,7 +76,7 @@ function extractTakenAtFromFilename(filename: string): Date | null {
   }
   // Android/Screenshot: IMG_20231215_103045.jpg, Screenshot_20231215-103045.jpg, 20191021_103725.jpg
   const withTime = filename.match(
-    /(\d{4})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])[_\-](\d{2})(\d{2})(\d{2})/,
+    /(?:^|[^0-9])(\d{4})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])[_\-](\d{2})(\d{2})(\d{2})(?=[^0-9]|$)/,
   );
   if (withTime) {
     const [, yr, mo, dy, hr, mn, sc] = withTime;
@@ -63,7 +85,7 @@ function extractTakenAtFromFilename(filename: string): Date | null {
   }
   // DD-MM-YYYY format: rome.avenue-11-08-2025-0001.jpg
   const ddMmYyyy = filename.match(
-    /(0[1-9]|[12]\d|3[01])-(0[1-9]|1[0-2])-(\d{4})/,
+    /(?:^|[^0-9])(0[1-9]|[12]\d|3[01])-(0[1-9]|1[0-2])-(\d{4})(?=[^0-9]|$)/,
   );
   if (ddMmYyyy) {
     const [, dy, mo, yr] = ddMmYyyy;
@@ -72,7 +94,7 @@ function extractTakenAtFromFilename(filename: string): Date | null {
   }
   // WhatsApp / date-only: IMG-20231215-WA0001.jpg
   const dateOnly = filename.match(
-    /(\d{4})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])/,
+    /(?:^|[^0-9])(\d{4})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])(?=[^0-9]|$)/,
   );
   if (dateOnly) {
     const [, yr, mo, dy] = dateOnly;
@@ -170,23 +192,45 @@ async function readGoogleTakeoutTakenAt(
   bucket: string,
   mediaKey: string,
 ): Promise<Date | null> {
-  try {
-    const response = await s3.send(
-      new GetObjectCommand({ Bucket: bucket, Key: `${mediaKey}.json` }),
-    );
-    const body = response.Body as AsyncIterable<Uint8Array> | undefined;
-    if (!body) return null;
+  const candidateKeys = new Set<string>([`${mediaKey}.json`]);
+  const canonicalSiblingKey = (() => {
+    const dirname = path.posix.dirname(mediaKey);
+    const basename = path.posix.basename(mediaKey);
+    const canonicalFilename = getCanonicalSiblingFilename(basename);
 
-    const buffer = await streamToBuffer(body);
-    const parsed = JSON.parse(buffer.toString("utf-8")) as GoogleTakeoutSidecar;
+    if (canonicalFilename === basename) return null;
 
-    return extractTakenAtFromGoogleTakeoutMetadata(parsed);
-  } catch (error) {
-    if (isMissingObjectError(error)) return null;
+    return `${dirname}/${canonicalFilename}.json`;
+  })();
 
-    console.warn(`Failed to read Google Takeout metadata for ${mediaKey}:`, error);
-    return null;
+  if (canonicalSiblingKey) {
+    candidateKeys.add(canonicalSiblingKey);
   }
+
+  for (const candidateKey of candidateKeys) {
+    try {
+      const response = await s3.send(
+        new GetObjectCommand({ Bucket: bucket, Key: candidateKey }),
+      );
+      const body = response.Body as AsyncIterable<Uint8Array> | undefined;
+      if (!body) continue;
+
+      const buffer = await streamToBuffer(body);
+      const parsed = JSON.parse(buffer.toString("utf-8")) as GoogleTakeoutSidecar;
+
+      return extractTakenAtFromGoogleTakeoutMetadata(parsed);
+    } catch (error) {
+      if (isMissingObjectError(error)) continue;
+
+      console.warn(
+        `Failed to read Google Takeout metadata for ${candidateKey}:`,
+        error,
+      );
+      return null;
+    }
+  }
+
+  return null;
 }
 
 type ThumbnailResult = {

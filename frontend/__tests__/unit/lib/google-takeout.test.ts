@@ -97,6 +97,55 @@ describe("google takeout import plan", () => {
     expect(plan.missingSidecarCount).toBe(0);
   });
 
+  it("reuses the original sidecar for edited siblings in the same folder", async () => {
+    const original = new File(["photo"], "IMG_145482286860904.jpeg", {
+      type: "image/jpeg",
+    });
+    Object.defineProperty(original, "webkitRelativePath", {
+      value: "Takeout/Google Photos/Photos from 2014/IMG_145482286860904.jpeg",
+    });
+
+    const edited = new File(["photo"], "IMG_145482286860904-edited.jpeg", {
+      type: "image/jpeg",
+    });
+    Object.defineProperty(edited, "webkitRelativePath", {
+      value:
+        "Takeout/Google Photos/Photos from 2014/IMG_145482286860904-edited.jpeg",
+    });
+
+    const sidecar = new File(
+      [
+        JSON.stringify({
+          title: "IMG_145482286860904.jpeg",
+          photoTakenTime: { timestamp: "1415115501" },
+        }),
+      ],
+      "IMG_145482286860904.jpeg.supplemental-metadata.json",
+      { type: "application/json" },
+    );
+    Object.defineProperty(sidecar, "webkitRelativePath", {
+      value:
+        "Takeout/Google Photos/Photos from 2014/IMG_145482286860904.jpeg.supplemental-metadata.json",
+    });
+    Object.defineProperty(sidecar, "text", {
+      value: async () =>
+        JSON.stringify({
+          title: "IMG_145482286860904.jpeg",
+          photoTakenTime: { timestamp: "1415115501" },
+        }),
+    });
+
+    const plan = await buildGoogleTakeoutImportPlan(
+      [original, edited, sidecar],
+      "import-123",
+    );
+
+    expect(plan.items).toHaveLength(2);
+    expect(plan.items[0]?.sidecarFile).toBe(sidecar);
+    expect(plan.items[1]?.sidecarFile).toBe(sidecar);
+    expect(plan.missingSidecarCount).toBe(0);
+  });
+
   it("keeps media without sidecars and infers video content type from extension", async () => {
     const video = new File(["video"], "clip.mov", { type: "" });
     Object.defineProperty(video, "webkitRelativePath", {

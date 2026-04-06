@@ -324,6 +324,52 @@ describe('process-photo-metadata handler', () => {
     );
   });
 
+  it('reuses the original sibling sidecar for Google Takeout edited variants', async () => {
+    const takeoutDate = new Date('2014-11-04T15:38:21.000Z');
+    const takeoutKey =
+      'users/u1/photos/google-takeout/import-123/Photos from 2014/IMG_145482286860904-edited.jpeg';
+
+    s3Mock
+      .on(GetObjectCommand, {
+        Bucket: 'test-bucket',
+        Key: `${takeoutKey}.json`,
+      })
+      .rejects({
+        name: 'NoSuchKey',
+        $metadata: { httpStatusCode: 404 },
+      });
+
+    s3Mock
+      .on(GetObjectCommand, {
+        Bucket: 'test-bucket',
+        Key: 'users/u1/photos/google-takeout/import-123/Photos from 2014/IMG_145482286860904.jpeg.json',
+      })
+      .resolves({
+        Body: makeJsonBody({
+          photoTakenTime: {
+            timestamp: `${Math.floor(takeoutDate.getTime() / 1000)}`,
+          },
+        }) as never,
+      });
+
+    s3Mock
+      .on(GetObjectCommand, {
+        Bucket: 'test-bucket',
+        Key: takeoutKey,
+      })
+      .resolves({
+        Body: makeS3Body() as never,
+        ContentType: 'image/jpeg',
+      });
+
+    const { handler } = await import('../src/handler');
+    await handler(makeSqsEvent(takeoutKey));
+
+    expect(mockSet).toHaveBeenCalledWith(
+      expect.objectContaining({ takenAt: takeoutDate }),
+    );
+  });
+
   it('falls back to Image.DateTime when DateTimeOriginal is absent', async () => {
     const takenDate = new Date('2022-01-01T00:00:00.000Z');
     const fakeExif = Buffer.from('fake-exif');
@@ -459,6 +505,19 @@ describe('process-photo-metadata handler', () => {
 
     const { handler } = await import('../src/handler');
     await handler(makeSqsEvent('users/u1/photos/IMG_1234.jpg'));
+
+    expect(mockSet).toHaveBeenCalledWith(
+      expect.objectContaining({ takenAt: defaultLastModified }),
+    );
+  });
+
+  it('does not invent far-future dates from long numeric filenames', async () => {
+    s3Mock.on(GetObjectCommand).resolves({
+      Body: makeS3Body() as never,
+    });
+
+    const { handler } = await import('../src/handler');
+    await handler(makeSqsEvent('users/u1/photos/IMG_145482286860904-edited.jpeg'));
 
     expect(mockSet).toHaveBeenCalledWith(
       expect.objectContaining({ takenAt: defaultLastModified }),

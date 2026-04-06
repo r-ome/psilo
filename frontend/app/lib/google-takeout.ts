@@ -1,3 +1,5 @@
+import { getPhotoVersionGroupKey } from "@/app/lib/photo-versions";
+
 export type StorageSubFolder = "photos" | "videos";
 
 export interface GoogleTakeoutImportItem {
@@ -22,6 +24,8 @@ interface GoogleTakeoutSidecarFile {
   directory: string;
   filenameMatchKey: string;
   titleMatchKey: string | null;
+  siblingMatchKey: string;
+  titleSiblingMatchKey: string | null;
 }
 
 const IMAGE_EXTENSIONS = new Set([
@@ -116,6 +120,10 @@ function createMatchKey(filename: string): string {
   return filename.trim().toLowerCase();
 }
 
+function createSiblingMatchKey(filename: string): string {
+  return getPhotoVersionGroupKey(filename);
+}
+
 async function readJsonTitle(file: File): Promise<string | null> {
   try {
     const text =
@@ -149,6 +157,7 @@ function findMatchingSidecar(
   const directory = getDirectory(mediaRelativePath);
   const candidates = jsonFilesByDirectory.get(directory) ?? [];
   const matchKey = createMatchKey(filename);
+  const siblingMatchKey = createSiblingMatchKey(filename);
 
   return (
     candidates.find(
@@ -157,7 +166,13 @@ function findMatchingSidecar(
     candidates.find(
       (candidate) => candidate.titleMatchKey === matchKey,
     ) ?? null
-  );
+  ) ??
+    candidates.find(
+      (candidate) => candidate.siblingMatchKey === siblingMatchKey,
+    ) ??
+    candidates.find(
+      (candidate) => candidate.titleSiblingMatchKey === siblingMatchKey,
+    ) ?? null;
 }
 
 export async function buildGoogleTakeoutImportPlan(
@@ -197,6 +212,8 @@ export async function buildGoogleTakeoutImportPlan(
         directory: getDirectory(relativePath),
         filenameMatchKey: createMatchKey(stripJsonSuffix(file.name)),
         titleMatchKey: title ? createMatchKey(title) : null,
+        siblingMatchKey: createSiblingMatchKey(stripJsonSuffix(file.name)),
+        titleSiblingMatchKey: title ? createSiblingMatchKey(title) : null,
       } satisfies GoogleTakeoutSidecarFile;
     }),
   );
