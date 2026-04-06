@@ -29,6 +29,8 @@ export function UploadProgressIndicator() {
       : 0;
   const overallPercent =
     totalFiles > 0 ? Math.round(overallProgress) : 0;
+  const filePercent =
+    totalFiles > 0 ? Math.round((completedFiles / totalFiles) * 100) : 0;
   const activeLabel =
     activeUploads > 1
       ? `${activeUploads} files uploading`
@@ -79,9 +81,14 @@ export function UploadProgressIndicator() {
           className="flex w-full items-center justify-between p-3"
         >
           <span className="text-sm font-medium">
-            Uploading {uploadingCount} of {totalFiles}
+            Uploading {uploadingCount} of {totalFiles} files
           </span>
-          <ChevronUp className="h-4 w-4 text-muted-foreground" />
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">
+              {filePercent}% files
+            </span>
+            <ChevronUp className="h-4 w-4 text-muted-foreground" />
+          </div>
         </button>
         <div className="px-3 pb-3">
           <Progress value={overallPercent} />
@@ -94,11 +101,11 @@ export function UploadProgressIndicator() {
     <Card className="fixed bottom-4 right-4 z-50 w-72 p-4 shadow-lg">
       <div className="flex items-center justify-between mb-2">
         <span className="text-sm font-medium">
-          Uploading {uploadingCount} of {totalFiles}
+          Uploading {uploadingCount} of {totalFiles} files
         </span>
         <div className="flex items-center gap-1">
           <span className="text-xs text-muted-foreground">
-            {overallPercent}%
+            {filePercent}% files
           </span>
           <Button
             variant="ghost"
@@ -114,6 +121,10 @@ export function UploadProgressIndicator() {
           {activeLabel}
         </p>
       )}
+      <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+        <span>Transfer progress</span>
+        <span>{overallPercent}%</span>
+      </div>
       <Progress value={overallPercent} />
     </Card>
   );
