@@ -5,6 +5,7 @@ import {
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import path from "node:path";
 import { createDb } from "../../shared/db";
 import { photos, users } from "../../shared/schema";
 import { computePHash, hammingDistance } from "../../shared/phash";
@@ -14,6 +15,19 @@ const s3 = new S3Client({});
 const BUCKET_NAME = process.env.BUCKET_NAME!;
 const PHASH_THRESHOLD = 10;
 
+function sanitizeRelativePath(relativePath: string): string | null {
+  const normalized = path.posix.normalize(relativePath.replace(/\\/g, "/"));
+  const segments = normalized
+    .split("/")
+    .filter((segment) => segment.length > 0 && segment !== ".");
+
+  if (segments.some((segment) => segment === "..")) {
+    return null;
+  }
+
+  return segments.join("/");
+}
+
 export const handler = async (
   event: APIGatewayProxyEventV2WithJWTAuthorizer,
 ): Promise<APIGatewayProxyResultV2> => {
@@ -22,13 +36,53 @@ export const handler = async (
   const givenName = (claims.given_name as string) ?? '';
   const familyName = (claims.family_name as string) ?? '';
   const body = JSON.parse(event.body ?? "{}");
-  const { filename, contentType, imageData, contentLength } = body;
+  const {
+    filename,
+    contentType,
+    imageData,
+    contentLength,
+    relativePath,
+    storageSubFolder,
+  } = body as {
+    filename: string;
+    contentType: string;
+    imageData?: string;
+    contentLength?: number;
+    relativePath?: string;
+    storageSubFolder?: "photos" | "videos";
+  };
 
   if (!filename || !contentType) {
     return {
       statusCode: 400,
       body: JSON.stringify({
         message: "filename and contentType are required",
+      }),
+    };
+  }
+
+  if (
+    storageSubFolder &&
+    storageSubFolder !== "photos" &&
+    storageSubFolder !== "videos"
+  ) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        message: "storageSubFolder must be photos or videos",
+      }),
+    };
+  }
+
+  const safeRelativePath = relativePath
+    ? sanitizeRelativePath(relativePath)
+    : null;
+
+  if (relativePath && !safeRelativePath) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        message: "relativePath must stay within the user upload directory",
       }),
     };
   }
@@ -124,8 +178,11 @@ export const handler = async (
   const userPrefix = givenName && familyName
     ? `${givenName}-${familyName}-${userId}`
     : userId;
-  const subFolder = contentType.startsWith('video/') ? 'videos' : 'photos';
-  const key = `users/${userPrefix}/${subFolder}/${filename}`;
+  const subFolder =
+    storageSubFolder ??
+    (contentType.startsWith('video/') ? 'videos' : 'photos');
+  const objectPath = safeRelativePath ?? filename;
+  const key = `users/${userPrefix}/${subFolder}/${objectPath}`;
 
   const command = new PutObjectCommand({
     Bucket: BUCKET_NAME,

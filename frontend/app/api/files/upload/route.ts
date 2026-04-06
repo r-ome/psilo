@@ -29,6 +29,13 @@ export async function POST(req: NextRequest) {
     contentType: string;
     imageData?: string;
     contentLength?: number;
+    relativePath?: string;
+    storageSubFolder?: "photos" | "videos";
+  };
+
+  const { relativePath, storageSubFolder } = body as {
+    relativePath?: string;
+    storageSubFolder?: "photos" | "videos";
   };
 
   if (!filename || !contentType) {
@@ -51,6 +58,8 @@ export async function POST(req: NextRequest) {
         contentType,
         ...(imageData ? { imageData } : {}),
         ...(contentLength != null ? { contentLength } : {}),
+        ...(relativePath ? { relativePath } : {}),
+        ...(storageSubFolder ? { storageSubFolder } : {}),
       }),
     });
 

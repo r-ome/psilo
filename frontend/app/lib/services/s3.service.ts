@@ -19,16 +19,19 @@ export const s3Service = {
     contentType: string;
     imageData?: string;
     contentLength?: number;
+    relativePath?: string;
+    storageSubFolder?: "photos" | "videos";
   }) => api.post<PresignResponse>("/api/files/upload", body),
   uploadToS3: (
     url: string,
     file: File,
     onProgress?: (percent: number) => void,
+    contentTypeOverride?: string,
   ): Promise<void> => {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open("PUT", url);
-      xhr.setRequestHeader("Content-Type", file.type);
+      xhr.setRequestHeader("Content-Type", contentTypeOverride ?? file.type);
       if (onProgress) {
         xhr.upload.onprogress = (e) => {
           if (e.lengthComputable)

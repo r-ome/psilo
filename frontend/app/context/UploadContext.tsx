@@ -5,10 +5,13 @@ import { toast } from "sonner";
 import {
   s3Service,
   type DuplicatePhoto,
-  type PresignResponse,
 } from "@/app/lib/services/s3.service";
 import { api } from "@/app/lib/api";
 import { getImageHashData, hammingDistance } from "@/app/lib/utils/image-hash";
+import {
+  buildGoogleTakeoutImportPlan,
+  type GoogleTakeoutImportItem,
+} from "@/app/lib/google-takeout";
 import DuplicateUploadModal from "@/app/(protected)/components/DuplicateUploadModal";
 
 interface PendingDuplicate {
@@ -27,6 +30,7 @@ type UploadContextValue = {
   currentFileName: string | null;
   fileProgresses: Record<string, number>;
   startUpload: (files: File[]) => void;
+  startGoogleTakeoutUpload: (files: File[]) => void;
 };
 
 const initialValue: UploadContextValue = {
@@ -37,6 +41,7 @@ const initialValue: UploadContextValue = {
   currentFileName: null,
   fileProgresses: {},
   startUpload: () => {},
+  startGoogleTakeoutUpload: () => {},
 };
 
 const UploadContext = createContext<UploadContextValue>(initialValue);
@@ -67,6 +72,13 @@ function uniqueFilename(filename: string, existingFilenames: string[]): string {
   let counter = 1;
   while (existingFilenames.includes(`${base}_${counter}${ext}`)) counter++;
   return `${base}_${counter}${ext}`;
+}
+
+function createImportId(): string {
+  const randomUuid = globalThis.crypto?.randomUUID?.();
+  if (randomUuid) return randomUuid;
+
+  return `takeout-${Date.now()}`;
 }
 
 export function UploadProvider({ children }: { children: React.ReactNode }) {
@@ -101,6 +113,36 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const markUploadComplete = useCallback((itemId: string) => {
+    setFileProgresses((prev) => ({ ...prev, [itemId]: 100 }));
+    setCompletedFiles((prev) => prev + 1);
+  }, []);
+
+  const uploadMediaWithProgress = useCallback(
+    async (
+      itemId: string,
+      file: File,
+      presignedUrl: string,
+      contentType: string,
+    ) => {
+      setActiveUploads((prev) => prev + 1);
+      setCurrentFileName(file.name);
+
+      try {
+        await s3Service.uploadToS3(
+          presignedUrl,
+          file,
+          (percent) =>
+            setFileProgresses((prev) => ({ ...prev, [itemId]: percent })),
+          contentType,
+        );
+      } finally {
+        setActiveUploads((prev) => Math.max(prev - 1, 0));
+      }
+    },
+    [],
+  );
+
   const startUpload = useCallback((files: File[]) => {
     if (isUploadingRef.current) {
       toast.error("An upload is already in progress. Please wait.");
@@ -121,31 +163,6 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
 
     (async () => {
       try {
-        const markFileComplete = (item: UploadItem) => {
-          setFileProgresses((prev) => ({ ...prev, [item.id]: 100 }));
-          setCompletedFiles((prev) => prev + 1);
-        };
-
-        const uploadWithProgress = async (
-          item: UploadItem,
-          presignedUrl: string,
-        ) => {
-          setActiveUploads((prev) => prev + 1);
-          setCurrentFileName(item.file.name);
-
-          try {
-            await s3Service.uploadToS3(presignedUrl, item.file, (percent) =>
-              setFileProgresses((prev) => ({ ...prev, [item.id]: percent })),
-            );
-          } catch (error) {
-            console.error(`Upload failed for ${item.file.name}:`, error);
-            toast.error(`Failed to upload ${item.file.name}`);
-          } finally {
-            markFileComplete(item);
-            setActiveUploads((prev) => Math.max(prev - 1, 0));
-          }
-        };
-
         const reviewedUploads: ReviewedUpload[] = [];
         const approvedBatchImages: ApprovedBatchImage[] = [];
 
@@ -187,7 +204,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
               );
 
               if (action === "skip") {
-                markFileComplete(item);
+                markUploadComplete(item.id);
                 continue;
               }
 
@@ -204,7 +221,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
                     ),
                     1,
                   );
-                  markFileComplete(removedUpload.item);
+                  markUploadComplete(removedUpload.item.id);
                 }
               }
 
@@ -228,7 +245,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
                 `Storage limit reached. Upgrade your plan to upload more files.`,
                 { id: "quota_exceeded", duration: 8000 },
               );
-              markFileComplete(item);
+              markUploadComplete(item.id);
               continue;
             }
 
@@ -236,7 +253,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
               const bestMatch = presignResult.duplicates[0];
               if (!bestMatch) {
                 toast.error(`Failed to get upload URL for ${item.file.name}`);
-                markFileComplete(item);
+                markUploadComplete(item.id);
                 continue;
               }
 
@@ -247,7 +264,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
               );
 
               if (action === "skip") {
-                markFileComplete(item);
+                markUploadComplete(item.id);
                 continue;
               }
 
@@ -259,7 +276,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
                 } catch (error) {
                   console.error("Failed to delete existing photo:", error);
                   toast.error(`Failed to replace existing photo for ${item.file.name}`);
-                  markFileComplete(item);
+                  markUploadComplete(item.id);
                   continue;
                 }
               }
@@ -286,7 +303,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
           } catch (error) {
             console.error(`Preflight failed for ${item.file.name}:`, error);
             toast.error(`Failed to prepare ${item.file.name} for upload`);
-            markFileComplete(item);
+            markUploadComplete(item.id);
           }
         }
 
@@ -300,15 +317,21 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
 
             if (presignResult.status !== "ok") {
               toast.error(`Failed to get upload URL for ${reviewedUpload.item.file.name}`);
-              markFileComplete(reviewedUpload.item);
+              markUploadComplete(reviewedUpload.item.id);
               continue;
             }
 
-            await uploadWithProgress(reviewedUpload.item, presignResult.url);
+            await uploadMediaWithProgress(
+              reviewedUpload.item.id,
+              reviewedUpload.item.file,
+              presignResult.url,
+              reviewedUpload.item.file.type,
+            );
+            markUploadComplete(reviewedUpload.item.id);
           } catch (error) {
             console.error(`Failed to upload ${reviewedUpload.item.file.name}:`, error);
             toast.error(`Failed to upload ${reviewedUpload.item.file.name}`);
-            markFileComplete(reviewedUpload.item);
+            markUploadComplete(reviewedUpload.item.id);
           }
         }
       } catch (err) {
@@ -320,7 +343,117 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
         isUploadingRef.current = false;
       }
     })();
-  }, []);
+  }, [markUploadComplete, uploadMediaWithProgress]);
+
+  const uploadGoogleTakeoutItem = useCallback(
+    async (item: GoogleTakeoutImportItem) => {
+      if (item.sidecarFile) {
+        const sidecarPresignResult = await s3Service.getPresignedURL({
+          filename: item.sidecarFile.name,
+          contentType: "application/json",
+          contentLength: item.sidecarFile.size,
+          relativePath: `${item.uploadRelativePath}.json`,
+          storageSubFolder: item.storageSubFolder,
+        });
+
+        if (sidecarPresignResult.status !== "ok") {
+          throw new Error(`Failed to get upload URL for ${item.sidecarFile.name}`);
+        }
+
+        await s3Service.uploadToS3(
+          sidecarPresignResult.url,
+          item.sidecarFile,
+          undefined,
+          "application/json",
+        );
+      }
+
+      const mediaPresignResult = await s3Service.getPresignedURL({
+        filename: item.mediaFile.name,
+        contentType: item.contentType,
+        contentLength: item.mediaFile.size,
+        relativePath: item.uploadRelativePath,
+        storageSubFolder: item.storageSubFolder,
+      });
+
+      if (mediaPresignResult.status !== "ok") {
+        throw new Error(`Failed to get upload URL for ${item.mediaFile.name}`);
+      }
+
+      await uploadMediaWithProgress(
+        item.id,
+        item.mediaFile,
+        mediaPresignResult.url,
+        item.contentType,
+      );
+    },
+    [uploadMediaWithProgress],
+  );
+
+  const startGoogleTakeoutUpload = useCallback((files: File[]) => {
+    if (isUploadingRef.current) {
+      toast.error("An upload is already in progress. Please wait.");
+      return;
+    }
+
+    isUploadingRef.current = true;
+    setIsUploading(true);
+    setTotalFiles(0);
+    setCompletedFiles(0);
+    setActiveUploads(0);
+    setFileProgresses({});
+
+    (async () => {
+      try {
+        const importPlan = await buildGoogleTakeoutImportPlan(
+          files,
+          createImportId(),
+        );
+
+        if (importPlan.items.length === 0) {
+          toast.error("No supported photos or videos were found in that folder.");
+          return;
+        }
+
+        setTotalFiles(importPlan.items.length);
+        setCompletedFiles(0);
+        setActiveUploads(0);
+        setFileProgresses({});
+
+        for (const item of importPlan.items) {
+          setCurrentFileName(item.mediaFile.name);
+
+          try {
+            await uploadGoogleTakeoutItem(item);
+          } catch (error) {
+            console.error(`Failed to import ${item.mediaFile.name}:`, error);
+            toast.error(`Failed to import ${item.mediaFile.name}`);
+          } finally {
+            markUploadComplete(item.id);
+          }
+        }
+
+        if (importPlan.missingSidecarCount > 0) {
+          console.warn(
+            `${importPlan.missingSidecarCount} Google Takeout file(s) were imported without matching JSON sidecars.`,
+          );
+        }
+
+        if (importPlan.unmatchedJsonCount > 0) {
+          console.warn(
+            `${importPlan.unmatchedJsonCount} Google Takeout JSON file(s) did not match any selected media file.`,
+          );
+        }
+      } catch (err) {
+        console.error("Google Takeout import failed:", err);
+        toast.error("Google Takeout import failed. Please try again.");
+      } finally {
+        setIsUploading(false);
+        setCurrentFileName(null);
+        isUploadingRef.current = false;
+      }
+    })();
+  }, [markUploadComplete, uploadGoogleTakeoutItem]);
 
   return (
     <UploadContext.Provider
@@ -332,6 +465,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
         currentFileName,
         fileProgresses,
         startUpload,
+        startGoogleTakeoutUpload,
       }}
     >
       {children}

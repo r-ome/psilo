@@ -8,6 +8,7 @@ import {
 } from "@aws-sdk/client-s3";
 import { BatchClient, SubmitJobCommand } from "@aws-sdk/client-batch";
 import { eq } from "drizzle-orm";
+import path from "node:path";
 import sharp from "sharp";
 import exifReader from "exif-reader";
 import { createDb } from "../../shared/db";
@@ -16,6 +17,21 @@ import { computePHash } from "../../shared/phash";
 
 const s3 = new S3Client({});
 const batch = new BatchClient({});
+
+type GoogleTakeoutSidecar = {
+  photoTakenTime?: {
+    timestamp?: string;
+    formatted?: string;
+  };
+  creationTime?: {
+    timestamp?: string;
+    formatted?: string;
+  };
+  modificationTime?: {
+    timestamp?: string;
+    formatted?: string;
+  };
+};
 
 function extractTakenAtFromFilename(filename: string): Date | null {
   // macOS screenshot: "Screenshot 2026-03-05 at 17-33-19 .png"
@@ -81,6 +97,96 @@ function extractTakenAt(
   }
   console.log(extractTakenAtFromFilename(filename));
   return extractTakenAtFromFilename(filename);
+}
+
+async function streamToBuffer(
+  body: AsyncIterable<Uint8Array>,
+): Promise<Buffer> {
+  const chunks: Uint8Array[] = [];
+
+  for await (const chunk of body) {
+    chunks.push(chunk);
+  }
+
+  return Buffer.concat(chunks);
+}
+
+function parseGoogleTakeoutTimestamp(
+  timestamp: string | undefined,
+  formatted: string | undefined,
+): Date | null {
+  if (timestamp) {
+    const unixTimestamp = Number(timestamp);
+    if (Number.isFinite(unixTimestamp) && unixTimestamp > 0) {
+      const date = new Date(unixTimestamp * 1000);
+      if (!isNaN(date.getTime())) return date;
+    }
+  }
+
+  if (formatted) {
+    const date = new Date(formatted);
+    if (!isNaN(date.getTime())) return date;
+  }
+
+  return null;
+}
+
+function extractTakenAtFromGoogleTakeoutMetadata(
+  metadata: GoogleTakeoutSidecar,
+): Date | null {
+  return (
+    parseGoogleTakeoutTimestamp(
+      metadata.photoTakenTime?.timestamp,
+      metadata.photoTakenTime?.formatted,
+    ) ??
+    parseGoogleTakeoutTimestamp(
+      metadata.creationTime?.timestamp,
+      metadata.creationTime?.formatted,
+    ) ??
+    parseGoogleTakeoutTimestamp(
+      metadata.modificationTime?.timestamp,
+      metadata.modificationTime?.formatted,
+    )
+  );
+}
+
+function isMissingObjectError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+
+  const candidate = error as {
+    name?: string;
+    Code?: string;
+    $metadata?: { httpStatusCode?: number };
+  };
+
+  return (
+    candidate.name === "NoSuchKey" ||
+    candidate.Code === "NoSuchKey" ||
+    candidate.$metadata?.httpStatusCode === 404
+  );
+}
+
+async function readGoogleTakeoutTakenAt(
+  bucket: string,
+  mediaKey: string,
+): Promise<Date | null> {
+  try {
+    const response = await s3.send(
+      new GetObjectCommand({ Bucket: bucket, Key: `${mediaKey}.json` }),
+    );
+    const body = response.Body as AsyncIterable<Uint8Array> | undefined;
+    if (!body) return null;
+
+    const buffer = await streamToBuffer(body);
+    const parsed = JSON.parse(buffer.toString("utf-8")) as GoogleTakeoutSidecar;
+
+    return extractTakenAtFromGoogleTakeoutMetadata(parsed);
+  } catch (error) {
+    if (isMissingObjectError(error)) return null;
+
+    console.warn(`Failed to read Google Takeout metadata for ${mediaKey}:`, error);
+    return null;
+  }
 }
 
 type ThumbnailResult = {
@@ -161,6 +267,9 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
       // Skip folder marker objects
       if (key.endsWith("/")) continue;
 
+      // Skip Google Takeout sidecar objects.
+      if (key.toLowerCase().endsWith(".json")) continue;
+
       // Parse key: users/{userFolder}/{subFolder}/{filename}
       const parts = key.split("/");
       if (parts.length < 4 || parts[0] !== "users") {
@@ -173,7 +282,9 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
       if (subFolder === "thumbnails" || subFolder === "previews") continue;
 
       const userId = parts[1].slice(-36); // UUID is always the last 36 chars
-      const filename = parts.slice(3).join("/"); // Skip users, userFolder, subFolder
+      const keyRelativePath = parts.slice(3).join("/"); // Skip users, userFolder, subFolder
+      const filename = path.posix.basename(keyRelativePath);
+      const isGoogleTakeoutImport = keyRelativePath.startsWith("google-takeout/");
 
       console.log(`Processing: ${key} for user: ${userId}`);
 
@@ -191,6 +302,9 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
         new HeadObjectCommand({ Bucket: bucket, Key: key }),
       );
       const contentType = head.ContentType ?? null;
+      const googleTakeoutTakenAt = isGoogleTakeoutImport
+        ? await readGoogleTakeoutTakenAt(bucket, key)
+        : null;
 
       let width: number | null = null;
       let height: number | null = null;
@@ -203,7 +317,10 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
       if (contentType?.startsWith("video/")) {
         // For videos: tag original, update basic metadata, then submit Batch job for thumbnail/preview
         takenAt =
-          extractTakenAtFromFilename(filename) ?? head.LastModified ?? null;
+          googleTakeoutTakenAt ??
+          extractTakenAtFromFilename(filename) ??
+          head.LastModified ??
+          null;
 
         await s3.send(
           new PutObjectTaggingCommand({
@@ -236,18 +353,18 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
       const response = await s3.send(
         new GetObjectCommand({ Bucket: bucket, Key: key }),
       );
-      const chunks: Uint8Array[] = [];
-      for await (const chunk of response.Body as AsyncIterable<Uint8Array>) {
-        chunks.push(chunk);
-      }
-      const rawBuffer = Buffer.concat(chunks);
+      const rawBuffer = await streamToBuffer(
+        response.Body as AsyncIterable<Uint8Array>,
+      );
 
       const metadata = await sharp(rawBuffer).metadata();
       width = metadata.width ?? null;
       height = metadata.height ?? null;
       format = metadata.format ?? null;
       const pages = metadata.pages ?? null;
-      takenAt = extractTakenAt(metadata.exif as Buffer | undefined, filename);
+      takenAt =
+        googleTakeoutTakenAt ??
+        extractTakenAt(metadata.exif as Buffer | undefined, filename);
 
       // Compute pHash before thumbnail generation
       let phash: string | null = null;

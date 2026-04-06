@@ -1,9 +1,11 @@
 import { SQSEvent, SQSBatchResponse } from 'aws-lambda';
 import { mockClient } from 'aws-sdk-client-mock';
 import { S3Client, GetObjectCommand, HeadObjectCommand, PutObjectCommand, PutObjectTaggingCommand } from '@aws-sdk/client-s3';
+import { BatchClient, SubmitJobCommand } from '@aws-sdk/client-batch';
 import { Readable } from 'stream';
 
 const s3Mock = mockClient(S3Client);
+const batchMock = mockClient(BatchClient);
 
 const mockWhere = jest.fn().mockResolvedValue([]);
 const mockSet = jest.fn(() => ({ where: mockWhere }));
@@ -109,8 +111,16 @@ function makeS3Body(): Readable {
   return stream;
 }
 
+function makeJsonBody(value: unknown): Readable {
+  const stream = new Readable();
+  stream.push(Buffer.from(JSON.stringify(value)));
+  stream.push(null);
+  return stream;
+}
+
 beforeEach(() => {
   s3Mock.reset();
+  batchMock.reset();
   mockInsert.mockClear();
   mockValues.mockClear();
   mockOnConflictDoUpdate.mockClear();
@@ -135,6 +145,7 @@ beforeEach(() => {
   s3Mock.on(HeadObjectCommand).resolves({ ContentType: 'image/jpeg', LastModified: defaultLastModified });
   s3Mock.on(PutObjectCommand).resolves({});
   s3Mock.on(PutObjectTaggingCommand).resolves({});
+  batchMock.on(SubmitJobCommand).resolves({});
 });
 
 describe('process-photo-metadata handler', () => {
@@ -149,6 +160,14 @@ describe('process-photo-metadata handler', () => {
   it('skips thumbnail objects in thumbnails/ subfolder', async () => {
     const { handler } = await import('../src/handler');
     const result = await handler(makeSqsEvent('users/u1/thumbnails/photo.jpg')) as SQSBatchResponse;
+
+    expect(mockInsert).not.toHaveBeenCalled();
+    expect(result.batchItemFailures).toHaveLength(0);
+  });
+
+  it('skips Google Takeout sidecar objects', async () => {
+    const { handler } = await import('../src/handler');
+    const result = await handler(makeSqsEvent('users/u1/photos/photo.jpg.json')) as SQSBatchResponse;
 
     expect(mockInsert).not.toHaveBeenCalled();
     expect(result.batchItemFailures).toHaveLength(0);
@@ -256,6 +275,52 @@ describe('process-photo-metadata handler', () => {
     expect(mockExifReader).toHaveBeenCalledWith(fakeExif);
     expect(mockSet).toHaveBeenCalledWith(
       expect.objectContaining({ takenAt: takenDate }),
+    );
+  });
+
+  it('prefers Google Takeout json timestamp over EXIF and LastModified', async () => {
+    const takeoutDate = new Date('2020-05-04T03:02:01.000Z');
+    const takeoutKey = 'users/u1/photos/google-takeout/import-123/photo.jpg';
+    const fakeExif = Buffer.from('fake-exif');
+
+    mockSharpMetadata.mockResolvedValue({
+      width: 4000,
+      height: 3000,
+      format: 'jpeg',
+      exif: fakeExif,
+    });
+    mockExifReader.mockReturnValue({
+      exif: { DateTimeOriginal: new Date('2023-06-15T10:30:00.000Z') },
+    });
+
+    s3Mock
+      .on(GetObjectCommand, {
+        Bucket: 'test-bucket',
+        Key: `${takeoutKey}.json`,
+      })
+      .resolves({
+        Body: makeJsonBody({
+          photoTakenTime: {
+            timestamp: `${Math.floor(takeoutDate.getTime() / 1000)}`,
+          },
+        }) as never,
+      });
+
+    s3Mock
+      .on(GetObjectCommand, {
+        Bucket: 'test-bucket',
+        Key: takeoutKey,
+      })
+      .resolves({
+        Body: makeS3Body() as never,
+        ContentType: 'image/jpeg',
+      });
+
+    const { handler } = await import('../src/handler');
+    await handler(makeSqsEvent(takeoutKey));
+
+    expect(mockSet).toHaveBeenCalledWith(
+      expect.objectContaining({ takenAt: takeoutDate }),
     );
   });
 
