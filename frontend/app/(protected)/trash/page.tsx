@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { Loader2Icon, Trash2 } from "lucide-react";
 import { Button } from "@/app/components/ui/button";
 import PhotoGrid from "@/app/(protected)/components/PhotoGrid";
 import DeleteConfirmDialog from "@/app/(protected)/components/DeleteConfirmDialog";
 import ImageViewer from "@/app/(protected)/components/ImageViewer";
 import { photoService, Photo } from "@/app/lib/services/photo.service";
+import { getPrimaryPhotoVersions } from "@/app/lib/photo-versions";
 import { useLoadMore } from "@/app/lib/hooks/useLoadMore";
 
 export default function TrashPage() {
@@ -19,6 +20,7 @@ export default function TrashPage() {
   const [bulkRestorePending, setBulkRestorePending] = useState(false);
   const [bulkPermanentDeletePending, setBulkPermanentDeletePending] = useState(false);
   const [singlePermanentDeletePhoto, setSinglePermanentDeletePhoto] = useState<Photo | null>(null);
+  const visiblePhotos = useMemo(() => getPrimaryPhotoVersions(photos), [photos]);
 
   const loadMore = useCallback(() => {
     if (!nextCursor) return;
@@ -162,7 +164,7 @@ export default function TrashPage() {
             </div>
           )}
           <PhotoGrid
-            photos={photos}
+            photos={visiblePhotos}
             selectedIds={selectedIds}
             onToggleSelect={handleToggleSelect}
             onPhotoClick={setViewerIndex}
@@ -215,7 +217,9 @@ export default function TrashPage() {
         />
       )}
       <ImageViewer
-        photos={photos}
+        key={viewerIndex === null ? "viewer-closed" : `viewer-${viewerIndex}-${visiblePhotos.length}`}
+        photos={visiblePhotos}
+        allPhotos={photos}
         initialIndex={viewerIndex}
         onClose={() => setViewerIndex(null)}
         onRestore={handleSingleRestore}

@@ -28,11 +28,16 @@ import {
 } from "@/app/components/ui/dropdown-menu";
 import { Photo } from "@/app/lib/services/photo.service";
 import { Album } from "@/app/lib/services/album.service";
+import {
+  getRelatedPhotoVersions,
+  isEditedPhotoVersion,
+} from "@/app/lib/photo-versions";
 import AddToAlbumModal from "./AddToAlbumModal";
 import DownloadModal from "./DownloadModal";
 
 interface ImageViewerProps {
   photos: Photo[];
+  allPhotos?: Photo[];
   initialIndex: number | null;
   onClose: () => void;
   currentAlbum?: Album | null;
@@ -42,6 +47,7 @@ interface ImageViewerProps {
 
 export default function ImageViewer({
   photos,
+  allPhotos,
   initialIndex,
   onClose,
   currentAlbum,
@@ -53,6 +59,7 @@ export default function ImageViewer({
   const [prevInitialIndex, setPrevInitialIndex] = useState(initialIndex);
   const [isAddToAlbumOpen, setIsAddToAlbumOpen] = useState(false);
   const [isDownloadOpen, setIsDownloadOpen] = useState(false);
+  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
 
   if (prevInitialIndex !== initialIndex && initialIndex !== null) {
     setPrevInitialIndex(initialIndex);
@@ -67,15 +74,109 @@ export default function ImageViewer({
 
   useEffect(() => {
     if (!api) return;
-    const onSelect = () => setCurrentIndex(api.selectedScrollSnap());
+    const onSelect = () => {
+      setCurrentIndex(api.selectedScrollSnap());
+      setSelectedVersionId(null);
+    };
     api.on("select", onSelect);
     return () => {
       api.off("select", onSelect);
     };
   }, [api]);
 
-
   const currentPhoto = photos[currentIndex];
+  const versionSource = allPhotos ?? photos;
+  const relatedVersions = getRelatedPhotoVersions(versionSource, currentPhoto);
+  const displayedPhoto =
+    relatedVersions.find((photo) => photo.id === selectedVersionId) ?? currentPhoto;
+
+  const getVersionPreviewUrl = (photo: Photo) =>
+    photo.thumbnailUrl ?? photo.previewUrl ?? photo.signedUrl ?? null;
+  const mediaClass = "max-h-full max-w-full w-auto h-auto object-contain mx-auto";
+  const handleViewerKeyDownCapture = (
+    event: React.KeyboardEvent<HTMLDivElement>,
+  ) => {
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      api?.scrollPrev();
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      api?.scrollNext();
+    }
+  };
+
+  const renderPhoto = (photo: Photo) => {
+    if (photo.contentType?.startsWith("video/")) {
+      if (photo.storageClass === "GLACIER") {
+        return photo.previewUrl ? (
+          <video
+            controls
+            className="max-h-full max-w-full w-auto mx-auto"
+          >
+            <source src={photo.previewUrl} type="video/mp4" />
+          </video>
+        ) : (
+          <div className="flex flex-col items-center justify-center text-white/50 gap-2">
+            <span>Video archived in Glacier</span>
+            <span className="text-sm">Preview unavailable</span>
+          </div>
+        );
+      }
+
+      return photo.signedUrl ? (
+        <video
+          controls
+          className="max-h-full max-w-full w-auto mx-auto"
+        >
+          <source
+            src={photo.signedUrl}
+            type={photo.contentType || undefined}
+          />
+        </video>
+      ) : null;
+    }
+
+    if (photo.storageClass !== "GLACIER" && photo.signedUrl) {
+      return (
+        <Image
+          src={photo.signedUrl}
+          alt={photo.filename}
+          width={photo.width ?? 1200}
+          height={photo.height ?? 800}
+          className={mediaClass}
+          unoptimized
+        />
+      );
+    }
+
+    if (photo.previewUrl) {
+      return (
+        <Image
+          src={photo.previewUrl}
+          alt={photo.filename}
+          width={photo.width ?? 1200}
+          height={photo.height ?? 800}
+          className={mediaClass}
+          unoptimized
+        />
+      );
+    }
+
+    if (photo.thumbnailUrl) {
+      return (
+        <Image
+          src={photo.thumbnailUrl}
+          alt={photo.filename}
+          width={photo.width ?? 1200}
+          height={photo.height ?? 800}
+          className={mediaClass}
+          unoptimized
+        />
+      );
+    }
+
+    return null;
+  };
 
   return (
     <Dialog
@@ -87,6 +188,7 @@ export default function ImageViewer({
       <DialogContent
         className="max-w-[90vw] sm:max-w-[90vw] w-[90vw] h-[90vh] p-0 bg-black border-0 flex flex-col overflow-hidden text-white"
         onEscapeKeyDown={() => onClose()}
+        onKeyDownCapture={handleViewerKeyDownCapture}
       >
         <DialogTitle className="sr-only">Image viewer</DialogTitle>
 
@@ -96,62 +198,11 @@ export default function ImageViewer({
               {photos.map((photo) => (
                 <CarouselItem
                   key={photo.id}
-                  className="flex items-center justify-center p-8 pl-8! h-full"
+                  className="flex h-full min-h-0 items-center justify-center p-8 pl-8!"
                 >
-                  {photo.contentType?.startsWith("video/") ? (
-                    photo.storageClass === "GLACIER" ? (
-                      photo.previewUrl ? (
-                        <video
-                          controls
-                          className="max-h-[calc(90vh-5rem)] max-w-full w-auto mx-auto"
-                        >
-                          <source src={photo.previewUrl} type="video/mp4" />
-                        </video>
-                      ) : (
-                        <div className="flex flex-col items-center justify-center text-white/50 gap-2">
-                          <span>Video archived in Glacier</span>
-                          <span className="text-sm">Preview unavailable</span>
-                        </div>
-                      )
-                    ) : photo.signedUrl ? (
-                      <video
-                        controls
-                        className="max-h-[calc(90vh-5rem)] max-w-full w-auto mx-auto"
-                      >
-                        <source
-                          src={photo.signedUrl}
-                          type={photo.contentType || undefined}
-                        />
-                      </video>
-                    ) : null
-                  ) : photo.storageClass !== "GLACIER" && photo.signedUrl ? (
-                    <Image
-                      src={photo.signedUrl}
-                      alt={photo.filename}
-                      width={photo.width ?? 1200}
-                      height={photo.height ?? 800}
-                      className="max-h-[calc(90vh-5rem)] max-w-full w-auto h-auto object-contain mx-auto xl:pt-4"
-                      unoptimized
-                    />
-                  ) : photo.previewUrl ? (
-                    <Image
-                      src={photo.previewUrl}
-                      alt={photo.filename}
-                      width={photo.width ?? 1200}
-                      height={photo.height ?? 800}
-                      className="max-h-[calc(90vh-5rem)] max-w-full w-auto h-auto object-contain mx-auto xl:pt-4"
-                      unoptimized
-                    />
-                  ) : photo.thumbnailUrl ? (
-                    <Image
-                      src={photo.thumbnailUrl}
-                      alt={photo.filename}
-                      width={photo.width ?? 1200}
-                      height={photo.height ?? 800}
-                      className="max-h-[calc(90vh-5rem)] max-w-full w-auto h-auto object-contain mx-auto xl:pt-4"
-                      unoptimized
-                    />
-                  ) : null}
+                  {photo.id === currentPhoto?.id && displayedPhoto
+                    ? renderPhoto(displayedPhoto)
+                    : renderPhoto(photo)}
                 </CarouselItem>
               ))}
             </CarouselContent>
@@ -160,19 +211,72 @@ export default function ImageViewer({
           </Carousel>
         </div>
 
+        {relatedVersions.length > 1 && currentPhoto && (
+          <div className="shrink-0 border-t border-white/10 px-6 py-3">
+            <div className="mb-2 text-center text-xs uppercase tracking-[0.2em] text-white/50">
+              Versions
+            </div>
+            <div className="flex justify-center">
+              <div className="flex max-w-full gap-3 overflow-x-auto pb-1">
+              {relatedVersions.map((photo) => {
+                const previewUrl = getVersionPreviewUrl(photo);
+                const isCurrentVersion = photo.id === displayedPhoto?.id;
+
+                return (
+                  <button
+                    key={photo.id}
+                    type="button"
+                    tabIndex={-1}
+                    className={`shrink-0 text-left ${isCurrentVersion ? "opacity-100" : "opacity-70 hover:opacity-100"}`}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={(event) => {
+                      setSelectedVersionId(photo.id);
+                      event.currentTarget.blur();
+                    }}
+                  >
+                    <div
+                      className={`relative h-16 w-16 overflow-hidden rounded-md border ${
+                        isCurrentVersion ? "border-white" : "border-white/20"
+                      }`}
+                    >
+                      {previewUrl ? (
+                        <Image
+                          src={previewUrl}
+                          alt={photo.filename}
+                          fill
+                          className="object-cover"
+                          unoptimized
+                        />
+                      ) : (
+                        <div className="flex h-full items-center justify-center bg-white/10 px-2 text-[10px] text-white/70">
+                          {photo.filename}
+                        </div>
+                      )}
+                    </div>
+                    <div className="mt-1 text-xs text-white/70">
+                      {isEditedPhotoVersion(photo.filename) ? "Edited" : "Original"}
+                    </div>
+                  </button>
+                );
+              })}
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="h-16 shrink-0 flex items-center justify-between gap-2 text-sm text-white/70 px-6">
-          {currentPhoto && (
+          {displayedPhoto && (
             <div className="flex gap-2">
-              <span>{currentPhoto.filename}</span>
-              {currentPhoto.size != null && (
+              <span>{displayedPhoto.filename}</span>
+              {displayedPhoto.size != null && (
                 <span>
-                  · {(currentPhoto.size / (1024 * 1024)).toFixed(2)} MB
+                  · {(displayedPhoto.size / (1024 * 1024)).toFixed(2)} MB
                 </span>
               )}
-              {currentPhoto.createdAt && (
+              {displayedPhoto.createdAt && (
                 <span>
                   ·{" "}
-                  {new Date(currentPhoto.createdAt).toLocaleDateString(
+                  {new Date(displayedPhoto.createdAt).toLocaleDateString(
                     undefined,
                     {
                       year: "numeric",
@@ -216,10 +320,10 @@ export default function ImageViewer({
                     Add to Album
                   </DropdownMenuItem>
                 )}
-                {onRestore && currentPhoto && (
+                {onRestore && displayedPhoto && (
                   <DropdownMenuItem
                     onClick={() => {
-                      onRestore(currentPhoto);
+                      onRestore(displayedPhoto);
                       onClose();
                     }}
                   >
@@ -227,11 +331,11 @@ export default function ImageViewer({
                     Restore
                   </DropdownMenuItem>
                 )}
-                {onPermanentDelete && currentPhoto && (
+                {onPermanentDelete && displayedPhoto && (
                   <DropdownMenuItem
                     className="text-destructive focus:text-destructive"
                     onClick={() => {
-                      onPermanentDelete(currentPhoto);
+                      onPermanentDelete(displayedPhoto);
                       onClose();
                     }}
                   >
@@ -247,13 +351,13 @@ export default function ImageViewer({
         <AddToAlbumModal
           isOpen={isAddToAlbumOpen}
           onClose={() => setIsAddToAlbumOpen(false)}
-          photo={currentPhoto ?? null}
+          photo={displayedPhoto ?? null}
         />
-        {currentPhoto && (
+        {displayedPhoto && (
           <DownloadModal
             isOpen={isDownloadOpen}
             onClose={() => setIsDownloadOpen(false)}
-            photos={[currentPhoto]}
+            photos={[displayedPhoto]}
           />
         )}
       </DialogContent>

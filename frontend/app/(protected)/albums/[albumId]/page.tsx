@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { use } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
@@ -36,6 +36,7 @@ import ImageViewer from "@/app/(protected)/components/ImageViewer";
 import EditAlbumDialog from "@/app/(protected)/albums/[albumId]/EditAlbumDialog";
 import { useLoadMore } from "@/app/lib/hooks/useLoadMore";
 import { downloadService, GlacierTier } from "@/app/lib/services/download.service";
+import { getPrimaryPhotoVersions } from "@/app/lib/photo-versions";
 import { toast } from "sonner";
 
 export default function AlbumDetailPage({
@@ -72,6 +73,10 @@ export default function AlbumDetailPage({
   const [bulkUpdatePending, setBulkUpdatePending] = useState(false);
   const pickerScrollContainerRef = useRef<HTMLDivElement>(null);
   const prevShowPickerRef = useRef(false);
+  const visibleAlbumPhotos = useMemo(
+    () => getPrimaryPhotoVersions(albumPhotos),
+    [albumPhotos],
+  );
 
   const loadAlbum = useCallback(async () => {
     try {
@@ -589,7 +594,7 @@ export default function AlbumDetailPage({
             </div>
           )}
           <PhotoGrid
-            photos={albumPhotos}
+            photos={visibleAlbumPhotos}
             selectedIds={selectedIds}
             onToggleSelect={handleToggleSelect}
             onDeleteRequest={setPhotoToRemove}
@@ -636,7 +641,9 @@ export default function AlbumDetailPage({
         onCancel={() => setAlbumDeletePending(false)}
       />
       <ImageViewer
-        photos={albumPhotos}
+        key={viewerIndex === null ? "viewer-closed" : `viewer-${viewerIndex}-${visibleAlbumPhotos.length}`}
+        photos={visibleAlbumPhotos}
+        allPhotos={albumPhotos}
         initialIndex={viewerIndex}
         onClose={() => setViewerIndex(null)}
         currentAlbum={album as AlbumWithPhotos}

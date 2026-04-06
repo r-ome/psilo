@@ -32,6 +32,7 @@ import DownloadModal from "@/app/(protected)/components/DownloadModal";
 import { photoService, Photo } from "@/app/lib/services/photo.service";
 import { userService, UserProfile } from "@/app/lib/services/user.service";
 import { StorageNudgeBanner } from "@/app/(protected)/components/StorageNudgeBanner";
+import { getPrimaryPhotoVersions } from "@/app/lib/photo-versions";
 import { useLoadMore } from "@/app/lib/hooks/useLoadMore";
 import { useUpload } from "@/app/context/UploadContext";
 import { toast } from "sonner";
@@ -87,6 +88,8 @@ export default function Page() {
         storageSize.standardVideoCount + storageSize.glacierVideoCount,
     };
   }, [storageSize]);
+
+  const visiblePhotos = useMemo(() => getPrimaryPhotoVersions(photos), [photos]);
 
   const syncLoadedPages = useCallback((pages: LoadedPage[]) => {
     setLoadedPages(pages);
@@ -436,7 +439,7 @@ export default function Page() {
             </div>
           )}
           <PhotoGrid
-            photos={photos}
+            photos={visiblePhotos}
             selectedIds={selectedIds}
             onToggleSelect={handleToggleSelect}
             onDeleteRequest={setPhotoToDelete}
@@ -474,7 +477,9 @@ export default function Page() {
         onCancel={() => setBulkDeletePending(false)}
       />
       <ImageViewer
-        photos={photos}
+        key={viewerIndex === null ? "viewer-closed" : `viewer-${viewerIndex}-${visiblePhotos.length}`}
+        photos={visiblePhotos}
+        allPhotos={photos}
         initialIndex={viewerIndex}
         onClose={() => setViewerIndex(null)}
       />
