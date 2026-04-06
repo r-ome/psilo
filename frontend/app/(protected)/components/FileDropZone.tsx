@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { toast } from "sonner";
 import { FolderUp, Upload } from "lucide-react";
 import { useUpload } from "@/app/context/UploadContext";
 
@@ -25,19 +24,7 @@ const FileDropZone: React.FC<FileDropZoneProps> = ({ onFilesAccepted }) => {
   const handleFileSelect = (files: FileList | null) => {
     if (!files) return;
 
-    const validFiles = Array.from(files).filter((file) => {
-      if (
-        file.name.toLowerCase().endsWith(".avi") ||
-        file.type === "video/x-msvideo" ||
-        file.type === "video/avi"
-      ) {
-        toast.error(
-          `${file.name}: AVI files are not supported. Please convert to MP4 or MOV.`,
-        );
-        return false;
-      }
-      return true;
-    });
+    const validFiles = Array.from(files);
     if (validFiles.length === 0) return;
 
     startUpload(validFiles);

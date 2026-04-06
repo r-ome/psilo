@@ -28,6 +28,7 @@ import {
 } from "@/app/components/ui/dropdown-menu";
 import { Photo } from "@/app/lib/services/photo.service";
 import { Album } from "@/app/lib/services/album.service";
+import { getPreferredVideoPlaybackSource } from "@/app/lib/video-playback";
 import {
   getRelatedPhotoVersions,
   isEditedPhotoVersion,
@@ -120,33 +121,34 @@ export default function ImageViewer({
 
   const renderPhoto = (photo: Photo) => {
     if (photo.contentType?.startsWith("video/")) {
-      if (photo.storageClass === "GLACIER") {
-        return photo.previewUrl ? (
-          <video
-            controls
-            className="max-h-full max-w-full w-auto mx-auto"
-          >
-            <source src={photo.previewUrl} type="video/mp4" />
-          </video>
-        ) : (
+      const playbackSource = getPreferredVideoPlaybackSource(photo);
+
+      if (!playbackSource) {
+        return (
           <div className="flex flex-col items-center justify-center text-white/50 gap-2">
-            <span>Video archived in Glacier</span>
-            <span className="text-sm">Preview unavailable</span>
+            <span>
+              {photo.storageClass === "GLACIER"
+                ? "Video archived in Glacier"
+                : "Video unavailable"}
+            </span>
+            {photo.storageClass === "GLACIER" && (
+              <span className="text-sm">Preview unavailable</span>
+            )}
           </div>
         );
       }
 
-      return photo.signedUrl ? (
+      return (
         <video
           controls
           className="max-h-full max-w-full w-auto mx-auto"
         >
           <source
-            src={photo.signedUrl}
-            type={photo.contentType || undefined}
+            src={playbackSource.src}
+            type={playbackSource.type}
           />
         </video>
-      ) : null;
+      );
     }
 
     if (photo.storageClass !== "GLACIER" && photo.signedUrl) {
