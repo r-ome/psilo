@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useTheme } from "next-themes";
 import {
   Images,
   FolderOpen,
@@ -10,6 +11,8 @@ import {
   Settings,
   Trash2,
   LogOut,
+  Sun,
+  Moon,
 } from "lucide-react";
 
 import {
@@ -41,6 +44,7 @@ const manageItems = [
 export function AppSidebar() {
   const pathname = usePathname();
   const auth = useAuth();
+  const { theme, setTheme } = useTheme();
 
   return (
     <Sidebar>
@@ -102,6 +106,17 @@ export function AppSidebar() {
       <SidebarFooter className="p-4">
         <SidebarSeparator className="mb-2" />
         <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            >
+              <div className="relative flex size-4 items-center justify-center">
+                <Sun className="size-4 rotate-0 scale-100 transition-transform dark:-rotate-90 dark:scale-0" />
+                <Moon className="absolute size-4 rotate-90 scale-0 transition-transform dark:rotate-0 dark:scale-100" />
+              </div>
+              <span>Toggle theme</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton asChild isActive={pathname === "/settings"}>
               <Link href="/settings">
