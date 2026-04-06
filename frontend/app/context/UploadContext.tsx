@@ -14,6 +14,7 @@ import DuplicateUploadModal from "@/app/(protected)/components/DuplicateUploadMo
 interface PendingDuplicate {
   file: File;
   duplicate: DuplicatePhoto;
+  previewSrc?: string;
   resolve: (action: "keepBoth" | "skip" | "replace") => void;
   cleanup?: () => void;
 }
@@ -84,10 +85,11 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
   const askAboutDuplicate = (
     file: File,
     duplicate: DuplicatePhoto,
+    previewSrc?: string,
     cleanup?: () => void,
   ): Promise<"keepBoth" | "skip" | "replace"> => {
     return new Promise((resolve) => {
-      setPendingDuplicate({ file, duplicate, resolve, cleanup });
+      setPendingDuplicate({ file, duplicate, previewSrc, resolve, cleanup });
     });
   };
 
@@ -169,7 +171,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
                   .sort((a, b) => a.distance - b.distance)[0]
               : undefined;
 
-            if (localDuplicate) {
+            if (hashData && localDuplicate) {
               const previewUrl = URL.createObjectURL(localDuplicate.candidate.item.file);
               const action = await askAboutDuplicate(
                 item.file,
@@ -180,6 +182,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
                   s3Key: `batch:${localDuplicate.candidate.item.id}`,
                   distance: localDuplicate.distance,
                 },
+                `data:image/jpeg;base64,${hashData.imageData}`,
                 () => URL.revokeObjectURL(previewUrl),
               );
 
@@ -237,7 +240,11 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
                 continue;
               }
 
-              const action = await askAboutDuplicate(item.file, bestMatch);
+              const action = await askAboutDuplicate(
+                item.file,
+                bestMatch,
+                hashData ? `data:image/jpeg;base64,${hashData.imageData}` : undefined,
+              );
 
               if (action === "skip") {
                 markFileComplete(item);
@@ -332,6 +339,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
         <DuplicateUploadModal
           file={pendingDuplicate.file}
           duplicate={pendingDuplicate.duplicate}
+          previewSrc={pendingDuplicate.previewSrc}
           onKeepBoth={() => handleDuplicateResolved("keepBoth")}
           onSkip={() => handleDuplicateResolved("skip")}
           onReplaceExisting={() => handleDuplicateResolved("replace")}
