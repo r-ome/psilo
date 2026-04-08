@@ -42,17 +42,19 @@ vi.mock("@/app/lib/utils/image-hash", async () => {
 
 let duplicateModalProps:
   | {
-      onKeepBoth: () => void;
-      onSkip: () => void;
-      onReplaceExisting: () => void;
+      onResolve: (
+        action: "keepBoth" | "skip" | "replace",
+        applyToRest: boolean,
+      ) => void;
     }
   | null = null;
 
 vi.mock("@/app/(protected)/components/DuplicateUploadModal", () => ({
   default: (props: {
-    onKeepBoth: () => void;
-    onSkip: () => void;
-    onReplaceExisting: () => void;
+    onResolve: (
+      action: "keepBoth" | "skip" | "replace",
+      applyToRest: boolean,
+    ) => void;
   }) => {
     duplicateModalProps = props;
     return null;
@@ -203,11 +205,78 @@ describe("UploadProvider", () => {
     expect(uploadStarts).toEqual([]);
 
     await act(async () => {
-      duplicateModalProps?.onSkip();
+      duplicateModalProps?.onResolve("skip", false);
     });
 
     await waitFor(() => expect(uploadStarts).toEqual(["first.jpg"]));
     await waitFor(() => expect(uploadState?.completedFiles).toBe(2));
+  });
+
+  it("applies duplicate action to the rest when requested", async () => {
+    vi.mocked(getImageHashData)
+      .mockResolvedValueOnce({
+        imageData: "image-data-1",
+        perceptualHash: "d3ff971c0e20a5c3",
+      })
+      .mockResolvedValueOnce({
+        imageData: "image-data-2",
+        perceptualHash: "c3ff971c0e22a5c3",
+      })
+      .mockResolvedValueOnce({
+        imageData: "image-data-3",
+        perceptualHash: "c3ff971c0e22a5c2",
+      });
+
+    const uploadStarts: string[] = [];
+    vi.mocked(s3Service.uploadToS3).mockImplementation(async (_url, file) => {
+      uploadStarts.push(file.name);
+    });
+
+    let uploadState: UploadState | null = null;
+
+    function CaptureUploadState({
+      onReady,
+    }: {
+      onReady: (state: UploadState) => void;
+    }) {
+      const state = useUpload();
+
+      useEffect(() => {
+        onReady(state);
+      }, [onReady, state]);
+
+      return null;
+    }
+
+    render(
+      <UploadProvider>
+        <CaptureUploadState
+          onReady={(state) => {
+            uploadState = state;
+          }}
+        />
+      </UploadProvider>,
+    );
+
+    await waitFor(() => expect(uploadState).not.toBeNull());
+
+    const firstFile = new File(["a"], "first.jpg", { type: "image/jpeg" });
+    const secondFile = new File(["a"], "second.jpg", { type: "image/jpeg" });
+    const thirdFile = new File(["a"], "third.jpg", { type: "image/jpeg" });
+
+    await act(async () => {
+      uploadState?.startUpload([firstFile, secondFile, thirdFile]);
+    });
+
+    await waitFor(() => expect(duplicateModalProps).not.toBeNull());
+    const firstModalProps = duplicateModalProps;
+
+    await act(async () => {
+      firstModalProps?.onResolve("skip", true);
+    });
+
+    await waitFor(() => expect(uploadStarts).toEqual(["first.jpg"]));
+    await waitFor(() => expect(uploadState?.completedFiles).toBe(3));
   });
 
   afterEach(() => {

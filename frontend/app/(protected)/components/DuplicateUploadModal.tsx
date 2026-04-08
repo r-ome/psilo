@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -14,9 +14,10 @@ interface DuplicateUploadModalProps {
   file: File;
   duplicate: DuplicatePhoto;
   previewSrc?: string;
-  onKeepBoth: () => void;
-  onSkip: () => void;
-  onReplaceExisting: () => void;
+  onResolve: (
+    action: "keepBoth" | "skip" | "replace",
+    applyToRest: boolean,
+  ) => void;
 }
 
 function similarityLabel(distance: number): string {
@@ -25,27 +26,110 @@ function similarityLabel(distance: number): string {
   return "Possibly similar";
 }
 
+function NewPhotoPreview({
+  candidates,
+}: {
+  candidates: string[];
+}) {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [showNoPreview, setShowNoPreview] = useState(candidates.length === 0);
+
+  if (showNoPreview || candidates.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
+        No preview
+      </div>
+    );
+  }
+
+  const activeSrc = candidates[activeIndex];
+  if (!activeSrc) {
+    return (
+      <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
+        No preview
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={activeSrc}
+      alt="New photo"
+      className="h-full w-full cursor-pointer object-cover"
+      onError={() => {
+        const nextIndex = activeIndex + 1;
+        if (nextIndex < candidates.length) {
+          setActiveIndex(nextIndex);
+          return;
+        }
+        setShowNoPreview(true);
+      }}
+    />
+  );
+}
+
 const DuplicateUploadModal: React.FC<DuplicateUploadModalProps> = ({
   file,
   duplicate,
   previewSrc,
-  onKeepBoth,
-  onSkip,
-  onReplaceExisting,
+  onResolve,
 }) => {
+  const normalizedPreviewSrc = previewSrc?.trim();
+  const isDataImagePreview =
+    !!normalizedPreviewSrc && normalizedPreviewSrc.startsWith("data:image/");
+  const usePreviewSrc =
+    !!normalizedPreviewSrc && !isDataImagePreview;
   const fallbackFileUrl = useMemo(
-    () => (previewSrc ? null : URL.createObjectURL(file)),
-    [file, previewSrc],
+    () => (usePreviewSrc ? null : URL.createObjectURL(file)),
+    [file, usePreviewSrc],
   );
-  const newFileUrl = previewSrc ?? fallbackFileUrl;
+  const [fullResFileDataUrl, setFullResFileDataUrl] = useState<string | null>(null);
+  const preferredNewFileUrl = usePreviewSrc
+    ? normalizedPreviewSrc ?? null
+    : fallbackFileUrl;
+  const secondaryNewFileUrl = fullResFileDataUrl;
+  const tertiaryNewFileUrl = isDataImagePreview ? normalizedPreviewSrc ?? null : null;
+  const newPhotoPreviewCandidates = useMemo(() => {
+    const candidates = [
+      preferredNewFileUrl,
+      secondaryNewFileUrl,
+      tertiaryNewFileUrl,
+    ].filter((value): value is string => !!value);
+    return [...new Set(candidates)];
+  }, [preferredNewFileUrl, secondaryNewFileUrl, tertiaryNewFileUrl]);
+  const [applyToRest, setApplyToRest] = useState(false);
 
   useEffect(() => {
     if (!fallbackFileUrl) return;
     return () => URL.revokeObjectURL(fallbackFileUrl);
   }, [fallbackFileUrl]);
 
+  useEffect(() => {
+    let active = true;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (!active) return;
+      const result = typeof reader.result === "string" ? reader.result : null;
+      setFullResFileDataUrl(result);
+    };
+    reader.onerror = () => {
+      if (!active) return;
+      setFullResFileDataUrl(null);
+    };
+    reader.readAsDataURL(file);
+
+    return () => {
+      active = false;
+      reader.abort();
+    };
+  }, [file]);
+
+  const handleResolve = (action: "keepBoth" | "skip" | "replace") => {
+    onResolve(action, applyToRest);
+  };
+
   return (
-    <Dialog open onOpenChange={(open) => { if (!open) onSkip(); }}>
+    <Dialog open onOpenChange={(open) => { if (!open) onResolve("skip", false); }}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Duplicate photo detected</DialogTitle>
@@ -64,7 +148,7 @@ const DuplicateUploadModal: React.FC<DuplicateUploadModalProps> = ({
             <button
               type="button"
               className="relative w-full aspect-square cursor-pointer overflow-hidden rounded-md bg-muted transition hover:ring-2 hover:ring-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              onClick={onSkip}
+              onClick={() => handleResolve("skip")}
             >
               {duplicate.thumbnailUrl ? (
                 <img
@@ -90,19 +174,12 @@ const DuplicateUploadModal: React.FC<DuplicateUploadModalProps> = ({
             <button
               type="button"
               className="relative w-full aspect-square cursor-pointer overflow-hidden rounded-md bg-muted transition hover:ring-2 hover:ring-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              onClick={onReplaceExisting}
+              onClick={() => handleResolve("replace")}
             >
-              {newFileUrl ? (
-                <img
-                  src={newFileUrl}
-                  alt="New photo"
-                  className="h-full w-full cursor-pointer object-cover"
-                />
-              ) : (
-                <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
-                  No preview
-                </div>
-              )}
+              <NewPhotoPreview
+                key={`${file.name}-${file.size}-${file.lastModified}-${normalizedPreviewSrc ?? ""}`}
+                candidates={newPhotoPreviewCandidates}
+              />
             </button>
             <span className="text-xs text-muted-foreground truncate max-w-full px-1">
               {file.name}
@@ -110,8 +187,16 @@ const DuplicateUploadModal: React.FC<DuplicateUploadModalProps> = ({
           </div>
         </div>
 
-        <div className="flex justify-end">
-          <Button variant="outline" onClick={onKeepBoth}>
+        <div className="flex items-center justify-between gap-3">
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={applyToRest}
+              onChange={(event) => setApplyToRest(event.target.checked)}
+            />
+            Do this for the rest of files
+          </label>
+          <Button variant="outline" onClick={() => handleResolve("keepBoth")}>
             Keep both
           </Button>
         </div>

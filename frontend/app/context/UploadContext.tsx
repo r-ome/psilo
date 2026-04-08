@@ -18,7 +18,10 @@ interface PendingDuplicate {
   file: File;
   duplicate: DuplicatePhoto;
   previewSrc?: string;
-  resolve: (action: "keepBoth" | "skip" | "replace") => void;
+  resolve: (decision: {
+    action: "keepBoth" | "skip" | "replace";
+    applyToRest: boolean;
+  }) => void;
   cleanup?: () => void;
 }
 
@@ -93,25 +96,51 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
   const [pendingDuplicate, setPendingDuplicate] =
     useState<PendingDuplicate | null>(null);
   const isUploadingRef = useRef(false);
+  const duplicateDecisionForRestRef = useRef<"keepBoth" | "skip" | "replace" | null>(null);
 
-  const askAboutDuplicate = (
+  const askAboutDuplicate = useCallback((
     file: File,
     duplicate: DuplicatePhoto,
     previewSrc?: string,
     cleanup?: () => void,
-  ): Promise<"keepBoth" | "skip" | "replace"> => {
+  ): Promise<{ action: "keepBoth" | "skip" | "replace"; applyToRest: boolean }> => {
     return new Promise((resolve) => {
       setPendingDuplicate({ file, duplicate, previewSrc, resolve, cleanup });
     });
-  };
+  }, []);
 
-  const handleDuplicateResolved = (action: "keepBoth" | "skip" | "replace") => {
+  const handleDuplicateResolved = (
+    action: "keepBoth" | "skip" | "replace",
+    applyToRest: boolean,
+  ) => {
     if (pendingDuplicate) {
-      pendingDuplicate.resolve(action);
+      pendingDuplicate.resolve({ action, applyToRest });
       pendingDuplicate.cleanup?.();
       setPendingDuplicate(null);
     }
   };
+
+  const resolveDuplicateAction = useCallback(
+    async (
+      file: File,
+      duplicate: DuplicatePhoto,
+      previewSrc?: string,
+      cleanup?: () => void,
+    ): Promise<"keepBoth" | "skip" | "replace"> => {
+      const bulkAction = duplicateDecisionForRestRef.current;
+      if (bulkAction) {
+        cleanup?.();
+        return bulkAction;
+      }
+
+      const decision = await askAboutDuplicate(file, duplicate, previewSrc, cleanup);
+      if (decision.applyToRest) {
+        duplicateDecisionForRestRef.current = decision.action;
+      }
+      return decision.action;
+    },
+    [askAboutDuplicate],
+  );
 
   const markUploadComplete = useCallback((itemId: string) => {
     setFileProgresses((prev) => ({ ...prev, [itemId]: 100 }));
@@ -155,6 +184,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
     }));
 
     isUploadingRef.current = true;
+    duplicateDecisionForRestRef.current = null;
     setIsUploading(true);
     setTotalFiles(files.length);
     setCompletedFiles(0);
@@ -190,7 +220,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
 
             if (hashData && localDuplicate) {
               const previewUrl = URL.createObjectURL(localDuplicate.candidate.item.file);
-              const action = await askAboutDuplicate(
+              const action = await resolveDuplicateAction(
                 item.file,
                 {
                   id: localDuplicate.candidate.item.id,
@@ -257,7 +287,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
                 continue;
               }
 
-              const action = await askAboutDuplicate(
+              const action = await resolveDuplicateAction(
                 item.file,
                 bestMatch,
                 hashData ? `data:image/jpeg;base64,${hashData.imageData}` : undefined,
@@ -341,9 +371,10 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
         setIsUploading(false);
         setCurrentFileName(null);
         isUploadingRef.current = false;
+        duplicateDecisionForRestRef.current = null;
       }
     })();
-  }, [markUploadComplete, uploadMediaWithProgress]);
+  }, [markUploadComplete, resolveDuplicateAction, uploadMediaWithProgress]);
 
   const uploadGoogleTakeoutItem = useCallback(
     async (item: GoogleTakeoutImportItem) => {
@@ -374,7 +405,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
           throw new Error(`Failed to resolve duplicate for ${item.mediaFile.name}`);
         }
 
-        const action = await askAboutDuplicate(
+        const action = await resolveDuplicateAction(
           item.mediaFile,
           bestMatch,
           hashData ? `data:image/jpeg;base64,${hashData.imageData}` : undefined,
@@ -437,7 +468,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
         item.contentType,
       );
     },
-    [askAboutDuplicate, uploadMediaWithProgress],
+    [resolveDuplicateAction, uploadMediaWithProgress],
   );
 
   const startGoogleTakeoutUpload = useCallback((files: File[]) => {
@@ -447,6 +478,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
     }
 
     isUploadingRef.current = true;
+    duplicateDecisionForRestRef.current = null;
     setIsUploading(true);
     setTotalFiles(0);
     setCompletedFiles(0);
@@ -501,6 +533,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
         setIsUploading(false);
         setCurrentFileName(null);
         isUploadingRef.current = false;
+        duplicateDecisionForRestRef.current = null;
       }
     })();
   }, [markUploadComplete, uploadGoogleTakeoutItem]);
@@ -524,9 +557,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
           file={pendingDuplicate.file}
           duplicate={pendingDuplicate.duplicate}
           previewSrc={pendingDuplicate.previewSrc}
-          onKeepBoth={() => handleDuplicateResolved("keepBoth")}
-          onSkip={() => handleDuplicateResolved("skip")}
-          onReplaceExisting={() => handleDuplicateResolved("replace")}
+          onResolve={handleDuplicateResolved}
         />
       )}
     </UploadContext.Provider>
