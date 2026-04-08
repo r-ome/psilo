@@ -347,6 +347,56 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
 
   const uploadGoogleTakeoutItem = useCallback(
     async (item: GoogleTakeoutImportItem) => {
+      const hashData = item.contentType.startsWith("image/")
+        ? await getImageHashData(item.mediaFile)
+        : null;
+
+      const preflightPresignResult = await s3Service.getPresignedURL({
+        filename: item.mediaFile.name,
+        contentType: item.contentType,
+        contentLength: item.mediaFile.size,
+        relativePath: item.uploadRelativePath,
+        storageSubFolder: item.storageSubFolder,
+        ...(hashData ? { imageData: hashData.imageData } : {}),
+      });
+
+      if (preflightPresignResult.status === "quota_exceeded") {
+        toast.error(
+          `Storage limit reached. Upgrade your plan to upload more files.`,
+          { id: "quota_exceeded", duration: 8000 },
+        );
+        return;
+      }
+
+      if (preflightPresignResult.status === "duplicate") {
+        const bestMatch = preflightPresignResult.duplicates[0];
+        if (!bestMatch) {
+          throw new Error(`Failed to resolve duplicate for ${item.mediaFile.name}`);
+        }
+
+        const action = await askAboutDuplicate(
+          item.mediaFile,
+          bestMatch,
+          hashData ? `data:image/jpeg;base64,${hashData.imageData}` : undefined,
+        );
+
+        if (action === "skip") {
+          return;
+        }
+
+        if (action === "replace") {
+          try {
+            await api.delete("/api/photos", {
+              keys: preflightPresignResult.duplicates.map((duplicate) => duplicate.s3Key),
+            });
+          } catch (error) {
+            console.error("Failed to delete existing photo:", error);
+            toast.error(`Failed to replace existing photo for ${item.mediaFile.name}`);
+            return;
+          }
+        }
+      }
+
       if (item.sidecarFile) {
         const sidecarPresignResult = await s3Service.getPresignedURL({
           filename: item.sidecarFile.name,
@@ -387,7 +437,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
         item.contentType,
       );
     },
-    [uploadMediaWithProgress],
+    [askAboutDuplicate, uploadMediaWithProgress],
   );
 
   const startGoogleTakeoutUpload = useCallback((files: File[]) => {
