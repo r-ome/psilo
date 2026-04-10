@@ -45,6 +45,7 @@ export const photos = pgTable(
     s3Key: varchar("s3_key", { length: 1000 }).notNull().unique(),
     thumbnailKey: varchar("thumbnail_key", { length: 1000 }),
     previewKey: varchar("preview_key", { length: 1000 }),
+    normalizedImportPath: varchar("normalized_import_path", { length: 1000 }),
     filename: varchar("filename", { length: 500 }).notNull(),
     size: integer("size"),
     thumbnailSize: integer("thumbnail_size"),
@@ -61,6 +62,10 @@ export const photos = pgTable(
   },
   (table) => ({
     userIdIdx: index("idx_photos_user_id").on(table.userId),
+    userNormalizedImportPathIdx: index("idx_photos_user_normalized_import_path").on(
+      table.userId,
+      table.normalizedImportPath,
+    ),
   }),
 );
 

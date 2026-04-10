@@ -16,6 +16,7 @@ import { DatabaseConstruct } from "./database";
 import { AuthConstruct } from "./auth";
 import { CdnConstruct } from "./cdn";
 import { ZipPipelineConstruct } from "./zip-pipeline";
+import { UploadPipelineConstruct } from "./upload-pipeline";
 
 const { GET, POST, DELETE, PUT, PATCH } = apigatewayv2.HttpMethod;
 const { GET: CORS_GET, POST: CORS_POST, DELETE: CORS_DELETE, PATCH: CORS_PATCH } = apigatewayv2.CorsHttpMethod;
@@ -26,6 +27,7 @@ interface ApiProps {
   database: DatabaseConstruct;
   auth: AuthConstruct;
   cdn: CdnConstruct;
+  uploadPipeline: UploadPipelineConstruct;
   zipPipeline: ZipPipelineConstruct;
 }
 
@@ -35,7 +37,7 @@ export class ApiConstruct extends Construct {
   constructor(scope: Construct, id: string, props: ApiProps) {
     super(scope, id);
 
-    const { bucket, database, auth, cdn, zipPipeline } = props;
+    const { bucket, database, auth, cdn, uploadPipeline, zipPipeline } = props;
 
     // -------------------------------------------------------------------------
     // Background Lambdas (event-driven, no API routes)
@@ -178,12 +180,18 @@ export class ApiConstruct extends Construct {
 
     const managePhotosFn = this.createFn("ManagePhotosFn", {
       service: "manage-photos",
-      environment: { BUCKET_NAME: bucket.bucketName, ...database.env, ...cfEnv },
+      environment: {
+        BUCKET_NAME: bucket.bucketName,
+        UPLOAD_QUEUE_URL: uploadPipeline.uploadQueue.queueUrl,
+        ...database.env,
+        ...cfEnv,
+      },
       timeout: cdk.Duration.seconds(29),
     });
     bucket.grantRead(managePhotosFn);
     bucket.grantDelete(managePhotosFn);
     database.grantAccess(managePhotosFn);
+    uploadPipeline.uploadQueue.grantSendMessages(managePhotosFn);
     managePhotosFn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
@@ -255,10 +263,12 @@ export class ApiConstruct extends Construct {
     }> = [
       // Files
       { path: "/files/presign",  methods: [POST],                  integration: presignIntegration },
+      { path: "/files/preflight", methods: [POST],                 integration: presignIntegration },
       { path: "/files/restore",  methods: [POST],                  integration: requestRestoreIntegration },
 
       // Photos
       { path: "/photos",               methods: [GET, DELETE, PATCH], integration: managePhotosIntegration },
+      { path: "/photos/retry-failed",  methods: [POST],               integration: managePhotosIntegration },
       { path: "/photos/storage-size",  methods: [GET],               integration: managePhotosIntegration },
       { path: "/photos/trash",         methods: [GET, DELETE],        integration: managePhotosIntegration },
       { path: "/photos/trash/restore", methods: [POST],              integration: managePhotosIntegration },

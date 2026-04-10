@@ -133,4 +133,29 @@ describe("DuplicateUploadModal", () => {
     unmount();
     vi.unstubAllGlobals();
   });
+
+  it("renders video previews for video uploads", () => {
+    const createObjectURL = vi.fn(() => "blob:preview-url");
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", {
+      createObjectURL,
+      revokeObjectURL,
+    });
+
+    const file = new File(["content"], "new.mp4", { type: "video/mp4" });
+    const { getByLabelText, unmount } = render(
+      <DuplicateUploadModal
+        file={file}
+        duplicate={duplicate}
+        onResolve={vi.fn()}
+      />,
+    );
+
+    const video = getByLabelText("New video");
+    expect(video.tagName).toBe("VIDEO");
+    expect(createObjectURL).toHaveBeenCalledWith(file);
+
+    unmount();
+    vi.unstubAllGlobals();
+  });
 });

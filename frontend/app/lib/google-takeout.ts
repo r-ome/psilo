@@ -54,6 +54,8 @@ const VIDEO_EXTENSIONS = new Set([
   "mpg",
 ]);
 
+const JSON_PARSE_BATCH_SIZE = 50;
+
 function normalizeRelativePath(path: string): string {
   return path
     .replace(/\\/g, "/")
@@ -144,6 +146,22 @@ async function readJsonTitle(file: File): Promise<string | null> {
   }
 }
 
+async function mapInBatches<T, R>(
+  items: T[],
+  batchSize: number,
+  mapper: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = [];
+
+  for (let index = 0; index < items.length; index += batchSize) {
+    const batch = items.slice(index, index + batchSize);
+    const batchResults = await Promise.all(batch.map(mapper));
+    results.push(...batchResults);
+  }
+
+  return results;
+}
+
 function findMatchingSidecar(
   mediaRelativePath: string,
   jsonFilesByPath: Map<string, GoogleTakeoutSidecarFile>,
@@ -202,8 +220,10 @@ export async function buildGoogleTakeoutImportPlan(
     mediaFiles.push({ file, relativePath, contentType });
   }
 
-  const jsonCandidates = await Promise.all(
-    jsonFiles.map(async ({ file, relativePath }) => {
+  const jsonCandidates = await mapInBatches(
+    jsonFiles,
+    JSON_PARSE_BATCH_SIZE,
+    async ({ file, relativePath }) => {
       const title = await readJsonTitle(file);
 
       return {
@@ -215,7 +235,7 @@ export async function buildGoogleTakeoutImportPlan(
         siblingMatchKey: createSiblingMatchKey(stripJsonSuffix(file.name)),
         titleSiblingMatchKey: title ? createSiblingMatchKey(title) : null,
       } satisfies GoogleTakeoutSidecarFile;
-    }),
+    },
   );
 
   for (const candidate of jsonCandidates) {

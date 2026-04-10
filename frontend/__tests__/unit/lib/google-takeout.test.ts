@@ -169,4 +169,50 @@ describe("google takeout import plan", () => {
       inferMediaContentType(new File(["video"], "movie.mp4", { type: "" })),
     ).toBe("video/mp4");
   });
+
+  it("handles large batches of json sidecars without changing matching behavior", async () => {
+    const photo = new File(["photo"], "IMG_9999.JPG", { type: "image/jpeg" });
+    Object.defineProperty(photo, "webkitRelativePath", {
+      value: "Takeout/Google Photos/Big Album/IMG_9999.JPG",
+    });
+
+    const files = [photo];
+
+    for (let index = 0; index < 120; index++) {
+      const sidecar = new File(
+        [JSON.stringify({ title: `unrelated-${index}.jpg` })],
+        `unrelated-${index}.json`,
+        { type: "application/json" },
+      );
+      Object.defineProperty(sidecar, "webkitRelativePath", {
+        value: `Takeout/Google Photos/Big Album/unrelated-${index}.json`,
+      });
+      Object.defineProperty(sidecar, "text", {
+        value: async () =>
+          JSON.stringify({ title: `unrelated-${index}.jpg` }),
+      });
+      files.push(sidecar);
+    }
+
+    const matchingSidecar = new File(
+      [JSON.stringify({ title: "IMG_9999.JPG" })],
+      "IMG_9999.JPG.supplemental-metadata.json",
+      { type: "application/json" },
+    );
+    Object.defineProperty(matchingSidecar, "webkitRelativePath", {
+      value:
+        "Takeout/Google Photos/Big Album/IMG_9999.JPG.supplemental-metadata.json",
+    });
+    Object.defineProperty(matchingSidecar, "text", {
+      value: async () => JSON.stringify({ title: "IMG_9999.JPG" }),
+    });
+    files.push(matchingSidecar);
+
+    const plan = await buildGoogleTakeoutImportPlan(files, "import-123");
+
+    expect(plan.items).toHaveLength(1);
+    expect(plan.items[0]?.sidecarFile).toBe(matchingSidecar);
+    expect(plan.missingSidecarCount).toBe(0);
+    expect(plan.unmatchedJsonCount).toBe(120);
+  });
 });

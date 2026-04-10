@@ -45,6 +45,12 @@ export interface StorageSize {
   retrievalSizeByTier: Record<string, number>; // bytes per retrieval tier
 }
 
+export interface RetryFailedPhotosResponse {
+  message: string;
+  queuedCount: number;
+  missingCount: number;
+}
+
 export const photoService = {
   listPhotos: (cursor?: string) => {
     const params = new URLSearchParams();
@@ -70,6 +76,8 @@ export const photoService = {
     api.patch<Photo>(`/api/photos?key=${encodeURIComponent(key)}`, { takenAt }),
   updatePhotosTakenAt: (keys: string[], takenAt: string | null) =>
     api.patch<{ message: string }>("/api/photos", { keys, takenAt }),
+  retryFailedPhotos: (keys: string[]) =>
+    api.post<RetryFailedPhotosResponse>("/api/photos/retry-failed", { keys }),
   getStorageSize: (): Promise<StorageSize> =>
     api.get<StorageSize>("/api/photos/storage-size"),
 };

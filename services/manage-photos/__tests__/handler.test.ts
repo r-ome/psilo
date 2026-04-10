@@ -1,11 +1,13 @@
 import { mockClient } from 'aws-sdk-client-mock';
 import { S3Client } from '@aws-sdk/client-s3';
+import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import {
   APIGatewayProxyEventV2WithJWTAuthorizer,
   APIGatewayProxyStructuredResultV2,
 } from 'aws-lambda';
 
 const s3Mock = mockClient(S3Client);
+const sqsMock = mockClient(SQSClient);
 
 const mockLimit = jest.fn().mockResolvedValue([]);
 const mockOrderBy = jest.fn(() => ({ limit: mockLimit }));
@@ -87,6 +89,7 @@ async function callHandler(event: APIGatewayProxyEventV2WithJWTAuthorizer) {
 
 beforeEach(() => {
   s3Mock.reset();
+  sqsMock.reset();
   mockLimit.mockReset().mockResolvedValue([]);
   mockOrderBy.mockReset().mockImplementation(() => ({ limit: mockLimit }));
   mockDeleteWhere.mockReset().mockResolvedValue([]);
@@ -101,6 +104,8 @@ beforeEach(() => {
   mockCfSignedUrl.mockReset().mockResolvedValue('https://xxx.cloudfront.net/signed-url');
   mockGetPrivateKey.mockReset().mockResolvedValue('fake-private-key');
   process.env.USE_CLOUDFRONT = 'true';
+  process.env.BUCKET_NAME = 'test-bucket';
+  process.env.UPLOAD_QUEUE_URL = 'https://sqs.example.com/upload-queue';
 });
 
 describe('manage-photos handler', () => {
@@ -115,7 +120,7 @@ describe('manage-photos handler', () => {
       const body = JSON.parse(result.body as string);
       expect(body).toEqual({
         photos: [
-          { ...photos[0], thumbnailUrl: 'https://xxx.cloudfront.net/signed-url', previewUrl: null },
+          { ...photos[0], thumbnailUrl: 'https://xxx.cloudfront.net/signed-url', previewUrl: null, signedUrl: null },
         ],
         nextCursor: null,
       });
@@ -156,7 +161,8 @@ describe('manage-photos handler', () => {
       expect(result.statusCode).toBe(200);
       const body = JSON.parse(result.body as string);
       expect(body.photos[0].thumbnailUrl).toBeNull();
-      expect(mockCfSignedUrl).not.toHaveBeenCalled(); // no signed URL needed
+      expect(body.photos[0].signedUrl).toBe('https://xxx.cloudfront.net/signed-url');
+      expect(mockCfSignedUrl).toHaveBeenCalledTimes(1);
     });
 
     it('returns signedUrl for videos (actual object, no thumbnails yet)', async () => {
@@ -184,7 +190,7 @@ describe('manage-photos handler', () => {
       const body = JSON.parse(result.body as string);
       expect(body).toEqual({
         photos: [
-          { ...photos[0], thumbnailUrl: 'https://xxx.cloudfront.net/signed-url', previewUrl: null },
+          { ...photos[0], thumbnailUrl: 'https://xxx.cloudfront.net/signed-url', previewUrl: null, signedUrl: null },
         ],
         nextCursor: null,
       });
@@ -398,6 +404,53 @@ describe('manage-photos handler', () => {
 
       expect(result.statusCode).toBe(400);
       expect(mockUpdate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('POST /photos/retry-failed', () => {
+    const sub = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+
+    it('requeues failed photos whose originals still exist', async () => {
+      const keys = [
+        `users/John-Doe-${sub}/photos/photo1.jpg`,
+        `users/John-Doe-${sub}/photos/photo2.jpg`,
+      ];
+      mockSelectWhereData.push([
+        { s3Key: keys[0], size: 123 },
+        { s3Key: keys[1], size: 456 },
+      ]);
+
+      const result = await callHandler(
+        makeEvent('POST', 'POST /photos/retry-failed', sub, undefined, { keys }, '/photos/retry-failed'),
+      );
+
+      expect(result.statusCode).toBe(200);
+      expect(JSON.parse(result.body as string)).toEqual({
+        message: 'Failed photos queued for retry',
+        queuedCount: 2,
+        missingCount: 0,
+      });
+      expect(sqsMock.commandCalls(SendMessageCommand)).toHaveLength(2);
+      expect(mockUpdate).toHaveBeenCalledWith('photos_table');
+      expect(mockSet).toHaveBeenCalledWith({ status: 'processing' });
+    });
+
+    it('skips retry when the original object is missing', async () => {
+      const key = `users/John-Doe-${sub}/photos/photo1.jpg`;
+      mockSelectWhereData.push([{ s3Key: key, size: 123 }]);
+      s3Mock.rejects();
+
+      const result = await callHandler(
+        makeEvent('POST', 'POST /photos/retry-failed', sub, undefined, { keys: [key] }, '/photos/retry-failed'),
+      );
+
+      expect(result.statusCode).toBe(200);
+      expect(JSON.parse(result.body as string)).toEqual({
+        message: 'Failed photos queued for retry',
+        queuedCount: 0,
+        missingCount: 1,
+      });
+      expect(sqsMock.commandCalls(SendMessageCommand)).toHaveLength(0);
     });
   });
 

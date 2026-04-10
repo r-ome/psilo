@@ -153,6 +153,27 @@ function parseGoogleTakeoutTimestamp(
   return null;
 }
 
+function inferFormatFromFilename(filename: string): string | null {
+  const extension = path.posix.extname(filename).slice(1).toLowerCase();
+  return extension || null;
+}
+
+function normalizeImportPath(pathValue: string): string {
+  return pathValue.replace(
+    /\/google-takeout\/[0-9a-fA-F-]+\//,
+    "/google-takeout/",
+  );
+}
+
+function isHeicLike(contentType: string | null, filename: string): boolean {
+  if (contentType === "image/heic" || contentType === "image/heif") {
+    return true;
+  }
+
+  const extension = path.posix.extname(filename).toLowerCase();
+  return extension === ".heic" || extension === ".heif";
+}
+
 function extractTakenAtFromGoogleTakeoutMetadata(
   metadata: GoogleTakeoutSidecar,
 ): Date | null {
@@ -164,10 +185,6 @@ function extractTakenAtFromGoogleTakeoutMetadata(
     parseGoogleTakeoutTimestamp(
       metadata.creationTime?.timestamp,
       metadata.creationTime?.formatted,
-    ) ??
-    parseGoogleTakeoutTimestamp(
-      metadata.modificationTime?.timestamp,
-      metadata.modificationTime?.formatted,
     )
   );
 }
@@ -296,6 +313,18 @@ async function generatePhotoPreview(
   return { buffer, contentType: "image/webp", extension: "webp" };
 }
 
+async function tagOriginalObject(bucket: string, key: string): Promise<void> {
+  await s3.send(
+    new PutObjectTaggingCommand({
+      Bucket: bucket,
+      Key: key,
+      Tagging: {
+        TagSet: [{ Key: "media-type", Value: "original" }],
+      },
+    }),
+  );
+}
+
 export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
   const db = createDb();
   const batchItemFailures: { itemIdentifier: string }[] = [];
@@ -329,16 +358,30 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
       const keyRelativePath = parts.slice(3).join("/"); // Skip users, userFolder, subFolder
       const filename = path.posix.basename(keyRelativePath);
       const isGoogleTakeoutImport = keyRelativePath.startsWith("google-takeout/");
+      const normalizedImportPath = isGoogleTakeoutImport
+        ? normalizeImportPath(`${subFolder}/${keyRelativePath}`)
+        : null;
 
       console.log(`Processing: ${key} for user: ${userId}`);
 
       // Phase 1: mark as processing (idempotent — handles SQS re-delivery)
       await db
         .insert(photos)
-        .values({ userId, s3Key: key, filename, size, status: "processing" })
+        .values({
+          userId,
+          s3Key: key,
+          normalizedImportPath,
+          filename,
+          size,
+          status: "processing",
+        })
         .onConflictDoUpdate({
           target: photos.s3Key,
-          set: { status: "processing", deletedAt: null },
+          set: {
+            status: "processing",
+            deletedAt: null,
+            normalizedImportPath,
+          },
         });
 
       // Phase 2: check content type first to avoid downloading large video files
@@ -349,6 +392,16 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
       const googleTakeoutTakenAt = isGoogleTakeoutImport
         ? await readGoogleTakeoutTakenAt(bucket, key)
         : null;
+      const fallbackTakenAt =
+        googleTakeoutTakenAt ??
+        extractTakenAtFromFilename(filename) ??
+        head.LastModified ??
+        null;
+
+      await db
+        .update(photos)
+        .set({ contentType, takenAt: fallbackTakenAt })
+        .where(eq(photos.s3Key, key));
 
       let width: number | null = null;
       let height: number | null = null;
@@ -366,13 +419,7 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
           head.LastModified ??
           null;
 
-        await s3.send(
-          new PutObjectTaggingCommand({
-            Bucket: bucket,
-            Key: key,
-            Tagging: { TagSet: [{ Key: "media-type", Value: "original" }] },
-          }),
-        );
+        await tagOriginalObject(bucket, key);
 
         await db
           .update(photos)
@@ -400,96 +447,113 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
       const rawBuffer = await streamToBuffer(
         response.Body as AsyncIterable<Uint8Array>,
       );
-
-      const metadata = await sharp(rawBuffer).metadata();
-      width = metadata.width ?? null;
-      height = metadata.height ?? null;
-      format = metadata.format ?? null;
-      const pages = metadata.pages ?? null;
-      takenAt =
-        googleTakeoutTakenAt ??
-        extractTakenAt(metadata.exif as Buffer | undefined, filename);
-
-      // Compute pHash before thumbnail generation
-      let phash: string | null = null;
       try {
-        phash = await computePHash(rawBuffer);
-      } catch (err) {
-        console.warn("pHash computation failed:", err);
+        const metadata = await sharp(rawBuffer).metadata();
+        width = metadata.width ?? null;
+        height = metadata.height ?? null;
+        format = metadata.format ?? null;
+        const pages = metadata.pages ?? null;
+        takenAt =
+          googleTakeoutTakenAt ??
+          extractTakenAt(metadata.exif as Buffer | undefined, filename);
+
+        // Compute pHash before thumbnail generation
+        let phash: string | null = null;
+        try {
+          phash = await computePHash(rawBuffer);
+        } catch (err) {
+          console.warn("pHash computation failed:", err);
+        }
+
+        // Generate photo thumbnail
+        const { buffer: thumbnailBuffer, contentType: thumbnailContentType, extension } =
+          await generatePhotoThumbnail(rawBuffer, format, pages);
+        thumbnailSize = thumbnailBuffer.length;
+        const thumbnailPath = key
+          .replace(/\/(photos|videos)\//, "/thumbnails/")
+          .replace(/\.[^.]+$/, `.${extension}`);
+
+        await s3.send(
+          new PutObjectCommand({
+            Bucket: bucket,
+            Key: thumbnailPath,
+            Body: thumbnailBuffer,
+            ContentType: thumbnailContentType,
+            StorageClass: "STANDARD",
+          }),
+        );
+        thumbnailKey = thumbnailPath;
+
+        // Generate photo preview (2048px WebP)
+        const { buffer: previewBuffer, contentType: previewContentType, extension: previewExtension } =
+          await generatePhotoPreview(rawBuffer, format, pages);
+        const previewPath = key
+          .replace(/\/(photos|videos)\//, "/previews/")
+          .replace(/\.[^.]+$/, `.${previewExtension}`);
+
+        await s3.send(
+          new PutObjectCommand({
+            Bucket: bucket,
+            Key: previewPath,
+            Body: previewBuffer,
+            ContentType: previewContentType,
+            StorageClass: "STANDARD",
+          }),
+        );
+        previewKey = previewPath;
+
+        takenAt =
+          takenAt ??
+          extractTakenAtFromFilename(filename) ??
+          head.LastModified ??
+          null;
+
+        await tagOriginalObject(bucket, key);
+
+        await db
+          .update(photos)
+          .set({
+            status: "completed",
+            width,
+            height,
+            format,
+            contentType,
+            takenAt,
+            thumbnailKey,
+            thumbnailSize,
+            previewKey,
+            phash,
+            deletedAt: null,
+          })
+          .where(eq(photos.s3Key, key));
+
+        console.log(`Saved metadata for: ${key}`);
+      } catch (imageProcessingError) {
+        if (!isHeicLike(contentType, filename)) {
+          throw imageProcessingError;
+        }
+
+        console.warn(`HEIC processing fallback for ${key}:`, imageProcessingError);
+        await tagOriginalObject(bucket, key);
+        await db
+          .update(photos)
+          .set({
+            status: "completed",
+            width,
+            height,
+            format: format ?? inferFormatFromFilename(filename),
+            contentType,
+            takenAt: fallbackTakenAt,
+            thumbnailKey: null,
+            thumbnailSize: null,
+            previewKey: null,
+            phash: null,
+            deletedAt: null,
+          })
+          .where(eq(photos.s3Key, key));
+
+        console.log(`Saved original-only metadata for: ${key}`);
       }
-
-      // Generate photo thumbnail
-      const { buffer: thumbnailBuffer, contentType: thumbnailContentType, extension } =
-        await generatePhotoThumbnail(rawBuffer, format, pages);
-      thumbnailSize = thumbnailBuffer.length;
-      const thumbnailPath = key
-        .replace(/\/(photos|videos)\//, "/thumbnails/")
-        .replace(/\.[^.]+$/, `.${extension}`);
-
-      await s3.send(
-        new PutObjectCommand({
-          Bucket: bucket,
-          Key: thumbnailPath,
-          Body: thumbnailBuffer,
-          ContentType: thumbnailContentType,
-          StorageClass: "STANDARD",
-        }),
-      );
-      thumbnailKey = thumbnailPath;
-
-      // Generate photo preview (2048px WebP)
-      const { buffer: previewBuffer, contentType: previewContentType, extension: previewExtension } =
-        await generatePhotoPreview(rawBuffer, format, pages);
-      const previewPath = key
-        .replace(/\/(photos|videos)\//, "/previews/")
-        .replace(/\.[^.]+$/, `.${previewExtension}`);
-
-      await s3.send(
-        new PutObjectCommand({
-          Bucket: bucket,
-          Key: previewPath,
-          Body: previewBuffer,
-          ContentType: previewContentType,
-          StorageClass: "STANDARD",
-        }),
-      );
-      previewKey = previewPath;
-
-      takenAt =
-        takenAt ??
-        extractTakenAtFromFilename(filename) ??
-        head.LastModified ??
-        null;
-
-      // Tag original with media-type=original
-      await s3.send(
-        new PutObjectTaggingCommand({
-          Bucket: bucket,
-          Key: key,
-          Tagging: {
-            TagSet: [{ Key: "media-type", Value: "original" }],
-          },
-        }),
-      );
-
-      await db
-        .update(photos)
-        .set({
-          status: "completed",
-          width,
-          height,
-          format,
-          contentType,
-          takenAt,
-          thumbnailKey,
-          thumbnailSize,
-          previewKey,
-          phash,
-          deletedAt: null,
-        })
-        .where(eq(photos.s3Key, key));
-
-      console.log(`Saved metadata for: ${key}`);
     } catch (err) {
       console.error(`Failed to process ${sqsRecord.messageId}:`, err);
       batchItemFailures.push({ itemIdentifier: sqsRecord.messageId });

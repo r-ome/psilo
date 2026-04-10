@@ -27,7 +27,7 @@ export class PsiloStack extends cdk.Stack {
       database,
     });
 
-    new UploadPipelineConstruct(this, "UploadPipeline", {
+    const uploadPipeline = new UploadPipelineConstruct(this, "UploadPipeline", {
       bucket: storage.bucket,
       database,
       videoPipeline,
@@ -49,6 +49,7 @@ export class PsiloStack extends cdk.Stack {
       database,
       auth,
       cdn,
+      uploadPipeline,
       zipPipeline,
     });
 

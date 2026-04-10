@@ -1,64 +1,31 @@
-export type ImageHashData = {
-  imageData: string;
-  perceptualHash: string;
+import {
+  computePerceptualHashFromPixels,
+  hammingDistance,
+  PHASH_SIZE,
+  type ImageHashData,
+} from "@/app/lib/utils/image-hash-core";
+
+type WorkerRequest = {
+  id: number;
+  file: File;
+  maxDim: number;
 };
 
-const PHASH_SIZE = 32;
-const PHASH_BLOCK_SIZE = 8;
+type WorkerResponse = {
+  id: number;
+  result: ImageHashData | null;
+  error?: string;
+};
 
-function computeMedian(values: number[]): number {
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 !== 0
-    ? sorted[mid]
-    : (sorted[mid - 1] + sorted[mid]) / 2;
-}
-
-function computePerceptualHashFromPixels(pixels: Uint8ClampedArray): string {
-  const dct: number[][] = Array.from({ length: PHASH_SIZE }, () =>
-    new Array(PHASH_SIZE).fill(0),
-  );
-
-  for (let u = 0; u < PHASH_SIZE; u++) {
-    for (let v = 0; v < PHASH_SIZE; v++) {
-      let sum = 0;
-      for (let x = 0; x < PHASH_SIZE; x++) {
-        for (let y = 0; y < PHASH_SIZE; y++) {
-          sum +=
-            Math.cos(((2 * x + 1) * u * Math.PI) / (2 * PHASH_SIZE)) *
-            Math.cos(((2 * y + 1) * v * Math.PI) / (2 * PHASH_SIZE)) *
-            pixels[x * PHASH_SIZE + y];
-        }
-      }
-      const cu = u === 0 ? 1 / Math.sqrt(2) : 1;
-      const cv = v === 0 ? 1 / Math.sqrt(2) : 1;
-      dct[u][v] = (2 / PHASH_SIZE) * cu * cv * sum;
-    }
+let workerInstance: Worker | null = null;
+let requestId = 0;
+const pendingRequests = new Map<
+  number,
+  {
+    resolve: (value: ImageHashData | null) => void;
+    reject: (error: Error) => void;
   }
-
-  const block: number[] = [];
-  for (let u = 0; u < PHASH_BLOCK_SIZE; u++) {
-    for (let v = 0; v < PHASH_BLOCK_SIZE; v++) {
-      if (u === 0 && v === 0) continue;
-      block.push(dct[u][v]);
-    }
-  }
-
-  const median = computeMedian(block);
-
-  let hashBits = "";
-  for (let u = 0; u < PHASH_BLOCK_SIZE; u++) {
-    for (let v = 0; v < PHASH_BLOCK_SIZE; v++) {
-      hashBits += dct[u][v] >= median ? "1" : "0";
-    }
-  }
-
-  let hex = "";
-  for (let i = 0; i < 64; i += 4) {
-    hex += parseInt(hashBits.slice(i, i + 4), 2).toString(16);
-  }
-  return hex;
-}
+>();
 
 function computePerceptualHash(img: HTMLImageElement): string | null {
   const canvas = document.createElement("canvas");
@@ -83,29 +50,11 @@ function computePerceptualHash(img: HTMLImageElement): string | null {
   return computePerceptualHashFromPixels(grayscale);
 }
 
-export function hammingDistance(a: string, b: string): number {
-  if (a.length !== b.length) return 64;
-  let distance = 0;
-  for (let i = 0; i < a.length; i++) {
-    const xor = parseInt(a[i], 16) ^ parseInt(b[i], 16);
-    distance += xor
-      .toString(2)
-      .split("")
-      .filter((char) => char === "1").length;
-  }
-  return distance;
-}
-
-/**
- * Browser-only utility. Downscales an image file to 200×200 using canvas
- * and returns a base64-encoded JPEG string suitable for pHash computation.
- * Returns null for non-image files.
- */
-export async function getImageHashData(
+function buildMainThreadImageHashData(
   file: File,
   maxDim = 200,
 ): Promise<ImageHashData | null> {
-  if (!file.type.startsWith("image/")) return null;
+  if (!file.type.startsWith("image/")) return Promise.resolve(null);
 
   return new Promise((resolve) => {
     const img = new window.Image();
@@ -128,7 +77,6 @@ export async function getImageHashData(
       }
       ctx.drawImage(img, 0, 0, w, h);
 
-      // Export as JPEG base64 (strip the data URL prefix)
       const dataUrl = canvas.toDataURL("image/jpeg", 0.6);
       const imageData = dataUrl.split(",")[1] ?? null;
       if (!imageData) {
@@ -153,6 +101,96 @@ export async function getImageHashData(
     img.src = objectUrl;
   });
 }
+
+function getWorker(): Worker | null {
+  if (typeof window === "undefined" || typeof Worker === "undefined") {
+    return null;
+  }
+
+  if (workerInstance) {
+    return workerInstance;
+  }
+
+  try {
+    workerInstance = new Worker(
+      new URL("../../workers/image-hash.worker.ts", import.meta.url),
+      { type: "module" },
+    );
+
+    workerInstance.addEventListener("message", (event: MessageEvent<WorkerResponse>) => {
+      const { id, result, error } = event.data;
+      const pending = pendingRequests.get(id);
+      if (!pending) return;
+      pendingRequests.delete(id);
+
+      if (error) {
+        pending.reject(new Error(error));
+        return;
+      }
+
+      pending.resolve(result);
+    });
+
+    workerInstance.addEventListener("error", () => {
+      const error = new Error("Image hash worker failed");
+      for (const pending of pendingRequests.values()) {
+        pending.reject(error);
+      }
+      pendingRequests.clear();
+      workerInstance?.terminate();
+      workerInstance = null;
+    });
+
+    return workerInstance;
+  } catch {
+    workerInstance = null;
+    return null;
+  }
+}
+
+async function buildWorkerImageHashData(
+  file: File,
+  maxDim = 200,
+): Promise<ImageHashData | null> {
+  const worker = getWorker();
+  if (!worker || !file.type.startsWith("image/")) return null;
+
+  const id = ++requestId;
+
+  return new Promise((resolve, reject) => {
+    pendingRequests.set(id, { resolve, reject });
+
+    try {
+      const request: WorkerRequest = { id, file, maxDim };
+      worker.postMessage(request);
+    } catch (error) {
+      pendingRequests.delete(id);
+      reject(error instanceof Error ? error : new Error("Failed to post image hash request"));
+    }
+  });
+}
+
+/**
+ * Browser-only utility. Uses a worker when available and falls back to the
+ * main thread implementation if the worker cannot be started.
+ */
+export async function getImageHashData(
+  file: File,
+  maxDim = 200,
+): Promise<ImageHashData | null> {
+  if (!file.type.startsWith("image/")) return null;
+
+  try {
+    const workerResult = await buildWorkerImageHashData(file, maxDim);
+    if (workerResult) return workerResult;
+  } catch {
+    // Fall back to the main thread path below.
+  }
+
+  return buildMainThreadImageHashData(file, maxDim);
+}
+
+export { hammingDistance };
 
 export async function getImageDataForHash(
   file: File,

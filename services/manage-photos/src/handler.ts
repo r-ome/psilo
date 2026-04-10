@@ -6,7 +6,9 @@ import {
   S3Client,
   GetObjectCommand,
   DeleteObjectsCommand,
+  HeadObjectCommand,
 } from "@aws-sdk/client-s3";
+import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { getPrivateKey, cfSignedUrl } from "../../shared/cloudfront";
 import { eq, desc, sql, and, or, lt, inArray, isNull, isNotNull } from "drizzle-orm";
@@ -19,7 +21,9 @@ import {
 } from "../../shared/tiers";
 
 const s3 = new S3Client({});
+const sqs = new SQSClient({});
 const BUCKET_NAME = process.env.BUCKET_NAME!;
+const UPLOAD_QUEUE_URL = process.env.UPLOAD_QUEUE_URL!;
 
 function respond(statusCode: number, body: unknown): APIGatewayProxyResultV2 {
   return {
@@ -35,6 +39,25 @@ function getStorageLimitBytes(plan: ManageableTierName): number {
     throw new Error(`Plan ${plan} does not have a storage limit`);
   }
   return limitBytes;
+}
+
+function getKeyUserId(key: string): string {
+  const parts = key.split("/");
+  const userSegment = parts[1] ?? "";
+  return userSegment.slice(-36);
+}
+
+function buildRetryMessageBody(key: string, size: number | null) {
+  return JSON.stringify({
+    Records: [
+      {
+        s3: {
+          bucket: { name: BUCKET_NAME },
+          object: { key, size: size ?? 0 },
+        },
+      },
+    ],
+  });
 }
 
 async function handleGetRequest(
@@ -210,11 +233,14 @@ async function handleGetRequest(
           ]);
           return { ...photo, signedUrl, thumbnailUrl, previewUrl };
         } else {
-          const [thumbnailUrl, previewUrl] = await Promise.all([
-            photo.thumbnailKey ? signUrl(photo.thumbnailKey) : null,
-            photo.previewKey ? signUrl(photo.previewKey) : null,
-          ]);
-          return { ...photo, thumbnailUrl, previewUrl };
+        const [thumbnailUrl, previewUrl, signedUrl] = await Promise.all([
+          photo.thumbnailKey ? signUrl(photo.thumbnailKey) : null,
+          photo.previewKey ? signUrl(photo.previewKey) : null,
+          !photo.thumbnailKey && !photo.previewKey && photo.storageClass !== "GLACIER"
+            ? signUrl(photo.s3Key)
+            : null,
+        ]);
+        return { ...photo, thumbnailUrl, previewUrl, signedUrl };
         }
       }),
     );
@@ -302,11 +328,14 @@ async function handleGetRequest(
         ]);
         return { ...photo, signedUrl, thumbnailUrl, previewUrl };
       } else {
-        const [thumbnailUrl, previewUrl] = await Promise.all([
+        const [thumbnailUrl, previewUrl, signedUrl] = await Promise.all([
           photo.thumbnailKey ? signUrl(photo.thumbnailKey) : null,
           photo.previewKey ? signUrl(photo.previewKey) : null,
+          !photo.thumbnailKey && !photo.previewKey && photo.storageClass !== "GLACIER"
+            ? signUrl(photo.s3Key)
+            : null,
         ]);
-        return { ...photo, thumbnailUrl, previewUrl };
+        return { ...photo, thumbnailUrl, previewUrl, signedUrl };
       }
     }),
   );
@@ -567,6 +596,102 @@ async function handlePostRequest(
       return respond(200, { message: "Photos restored" });
     }
   }
+
+  if (event.rawPath?.endsWith("/retry-failed")) {
+    let body: unknown;
+    try {
+      body = JSON.parse(event.body ?? "{}");
+    } catch {
+      return respond(400, { message: "Invalid JSON body" });
+    }
+
+    if (
+      !body ||
+      typeof body !== "object" ||
+      !("keys" in body) ||
+      !Array.isArray((body as { keys: unknown }).keys)
+    ) {
+      return respond(400, { message: "Missing keys array" });
+    }
+
+    const keys = (body as { keys: string[] }).keys;
+
+    for (const key of keys) {
+      if (getKeyUserId(key) !== sub) {
+        return respond(403, { message: "Forbidden" });
+      }
+    }
+
+    const retryablePhotos = await db
+      .select({
+        s3Key: photos.s3Key,
+        size: photos.size,
+      })
+      .from(photos)
+      .where(
+        and(
+          inArray(photos.s3Key, keys),
+          eq(photos.userId, sub),
+          eq(photos.status, "failed"),
+          isNull(photos.deletedAt),
+        ),
+      );
+
+    if (retryablePhotos.length === 0) {
+      return respond(200, {
+        message: "No failed photos to retry",
+        queuedCount: 0,
+        missingCount: 0,
+      });
+    }
+
+    const existingPhotos: Array<{ s3Key: string; size: number | null }> = [];
+
+    for (const photo of retryablePhotos) {
+      try {
+        await s3.send(
+          new HeadObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: photo.s3Key,
+          }),
+        );
+        existingPhotos.push(photo);
+      } catch (error) {
+        console.warn(`Skipping retry for missing object: ${photo.s3Key}`, error);
+      }
+    }
+
+    for (const photo of existingPhotos) {
+      await sqs.send(
+        new SendMessageCommand({
+          QueueUrl: UPLOAD_QUEUE_URL,
+          MessageBody: buildRetryMessageBody(photo.s3Key, photo.size ?? null),
+        }),
+      );
+    }
+
+    if (existingPhotos.length > 0) {
+      await db
+        .update(photos)
+        .set({ status: "processing" })
+        .where(
+          and(
+            inArray(
+              photos.s3Key,
+              existingPhotos.map((photo) => photo.s3Key),
+            ),
+            eq(photos.userId, sub),
+          ),
+        );
+    }
+
+    return respond(200, {
+      message: "Failed photos queued for retry",
+      queuedCount: existingPhotos.length,
+      missingCount: retryablePhotos.length - existingPhotos.length,
+    });
+  }
+
   return respond(400, { message: "Invalid request" });
 }
 

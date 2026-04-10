@@ -142,6 +142,13 @@ describe("PsiloStack", () => {
       });
     });
 
+    it("has POST /files/preflight route", () => {
+      template.hasResourceProperties("AWS::ApiGatewayV2::Route", {
+        RouteKey: "POST /files/preflight",
+        AuthorizationType: "JWT",
+      });
+    });
+
     it("uses JWT authorization on the route", () => {
       template.hasResourceProperties("AWS::ApiGatewayV2::Route", {
         RouteKey: "POST /files/presign",

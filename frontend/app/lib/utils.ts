@@ -13,6 +13,23 @@ export function formatStorage(bytes: number): string {
   return `${mb.toFixed(2)} MB`;
 }
 
+export function formatDuration(seconds: number): string {
+  const totalSeconds = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const remainingSeconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  }
+
+  if (minutes > 0) {
+    return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
+  }
+
+  return `${remainingSeconds}s`;
+}
+
 export function convertUsdToPhp(usd: number, rate: number = 56): number {
   return usd * rate;
 }

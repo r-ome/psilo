@@ -10,6 +10,7 @@ import {
   AlertCircle,
   MoreHorizontal,
   Play,
+  ImageOff,
 } from "lucide-react";
 import { Button } from "@/app/components/ui/button";
 import {
@@ -87,6 +88,7 @@ export default function PhotoGrid({
                 const isProcessing =
                   photo.status === "pending" || photo.status === "processing";
                 const isVideo = photo.contentType?.startsWith("video/");
+                const imagePreviewSrc = photo.thumbnailUrl ?? photo.previewUrl ?? null;
 
                 return (
                   <div
@@ -155,12 +157,26 @@ export default function PhotoGrid({
                             className="object-cover transition-transform group-hover:scale-105"
                             sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, (max-width: 1280px) 20vw, 16vw"
                           />
+                        ) : imagePreviewSrc ? (
+                          <Image
+                            src={imagePreviewSrc}
+                            alt={photo.filename}
+                            fill
+                            className="object-cover transition-transform group-hover:scale-105"
+                            sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, (max-width: 1280px) 20vw, 16vw"
+                          />
                         ) : null}
 
                         {/* Fullscreen overlay */}
                         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/20 transition-opacity">
                           <Fullscreen className="h-5 w-5 text-white drop-shadow" />
                         </div>
+                        {!isVideo && !imagePreviewSrc && (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-muted text-muted-foreground">
+                            <ImageOff className="size-6" />
+                            <span className="text-xs font-medium">Original only</span>
+                          </div>
+                        )}
                       </>
                     ) : isProcessing ? (
                       <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">

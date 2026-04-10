@@ -36,6 +36,7 @@ import { getPrimaryPhotoVersions } from "@/app/lib/photo-versions";
 import { useLoadMore } from "@/app/lib/hooks/useLoadMore";
 import { useUpload } from "@/app/context/UploadContext";
 import { toast } from "sonner";
+import { formatStorage } from "@/app/lib/utils";
 import {
   flattenPages,
   getRefreshablePages,
@@ -72,10 +73,10 @@ export default function Page() {
   } | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
 
-  const totalSizeMB = useMemo(() => {
-    if (!storageSize) return "0.00";
+  const totalSize = useMemo(() => {
+    if (!storageSize) return formatStorage(0);
     const bytes = storageSize.standardSize + storageSize.glacierSize;
-    return (bytes / (1024 * 1024)).toFixed(2);
+    return formatStorage(bytes);
   }, [storageSize]);
 
   const photosCount = useMemo(() => {
@@ -249,21 +250,31 @@ export default function Page() {
   const handleRetry = useCallback(
     async (photo: Photo) => {
       try {
-        await photoService.deletePhoto(photo.s3Key);
-        setPhotos((prev) => prev.filter((p) => p.id !== photo.id));
+        const result = await photoService.retryFailedPhotos([photo.s3Key]);
+        if (result.queuedCount === 0) {
+          toast.error("Original file is missing, so this photo cannot be retried.");
+          return;
+        }
+
+        setPhotos((prev) =>
+          prev.map((p) =>
+            p.id === photo.id ? { ...p, status: "processing" } : p,
+          ),
+        );
         setLoadedPages((prev) =>
           prev.map((page) => ({
             ...page,
-            photos: page.photos.filter((p) => p.id !== photo.id),
+            photos: page.photos.map((p) =>
+              p.id === photo.id ? { ...p, status: "processing" } : p,
+            ),
           })),
         );
-        loadStorageSize();
-        setUploadDialogOpen(true);
+        toast.success("Retry queued.");
       } catch {
         toast.error("Failed to retry this photo. Please try again.");
       }
     },
-    [loadStorageSize],
+    [],
   );
 
   const handleUpdateConfirm = async (takenAt: string | null) => {
@@ -364,7 +375,7 @@ export default function Page() {
           <h1 className="text-2xl font-semibold tracking-tight">Photos</h1>
           <p className="text-sm text-muted-foreground">
             {photosCount.photo} photo{photosCount.photo !== 1 ? "s" : ""} and{" "}
-            {photosCount.video} video{photosCount.video !== 1 ? "s" : ""} · {totalSizeMB} MB
+            {photosCount.video} video{photosCount.video !== 1 ? "s" : ""} · {totalSize}
           </p>
         </div>
         <div className="flex items-center gap-2">

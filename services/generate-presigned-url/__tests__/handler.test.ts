@@ -34,15 +34,23 @@ const mockHammingDistance = jest.mocked(hammingDistance);
 const mockGetPrivateKey = jest.mocked(getPrivateKey);
 const mockCfSignedUrl = jest.mocked(cfSignedUrl);
 
-const makeEvent = (body: object, sub = 'user-123'): APIGatewayProxyEventV2WithJWTAuthorizer =>
+const makeEvent = (
+  body: object,
+  sub = 'user-123',
+  rawPath = '/files/presign',
+): APIGatewayProxyEventV2WithJWTAuthorizer =>
   ({
     body: JSON.stringify(body),
+    rawPath,
     requestContext: { authorizer: { jwt: { claims: { sub } } } },
   }) as unknown as APIGatewayProxyEventV2WithJWTAuthorizer;
 
 const makeDbMock = (rows: object[] = []) => ({
   select: jest.fn().mockReturnThis(),
   from: jest.fn().mockReturnThis(),
+  limit: jest.fn().mockReturnThis(),
+  offset: jest.fn().mockReturnThis(),
+  orderBy: jest.fn().mockReturnThis(),
   where: jest.fn().mockResolvedValue(rows),
 });
 
@@ -55,6 +63,9 @@ const makeQuotaDbMock = (
   const mock = {
     select: jest.fn().mockReturnThis(),
     from: jest.fn().mockReturnThis(),
+    limit: jest.fn().mockReturnThis(),
+    offset: jest.fn().mockReturnThis(),
+    orderBy: jest.fn().mockReturnThis(),
     where: jest.fn(),
   };
   let callCount = 0;
@@ -66,6 +77,20 @@ const makeQuotaDbMock = (
     // pHash query (2nd when no userRow, 3rd when userRow present)
     return Promise.resolve(photoRows);
   });
+  return mock;
+};
+
+const makeSequentialDbMock = (responses: object[][]) => {
+  const mock = {
+    select: jest.fn().mockReturnThis(),
+    from: jest.fn().mockReturnThis(),
+    limit: jest.fn().mockReturnThis(),
+    offset: jest.fn().mockReturnThis(),
+    orderBy: jest.fn().mockReturnThis(),
+    where: jest.fn(),
+  };
+  let callCount = 0;
+  mock.where.mockImplementation(() => Promise.resolve(responses[callCount++] ?? []));
   return mock;
 };
 
@@ -168,10 +193,13 @@ describe('handler', () => {
       mockGetPrivateKey.mockResolvedValue('private-key');
       mockCfSignedUrl.mockResolvedValue('https://cdn.example.com/thumb.jpg');
 
-      const photoRows = [
-        { id: 'photo-1', filename: 'existing.jpg', thumbnailKey: 'users/x/thumbnails/existing.jpg', s3Key: 'users/x/photos/existing.jpg', phash: 'abcdef1234567890' },
+      const hashRows = [
+        { id: 'photo-1', phash: 'abcdef1234567890' },
       ];
-      const dbMock = makeQuotaDbMock(null, 0, photoRows);
+      const detailRows = [
+        { id: 'photo-1', filename: 'existing.jpg', thumbnailKey: 'users/x/thumbnails/existing.jpg', s3Key: 'users/x/photos/existing.jpg' },
+      ];
+      const dbMock = makeSequentialDbMock([[], hashRows, detailRows]);
       mockCreateDb.mockReturnValue(dbMock as unknown as ReturnType<typeof createDb>);
 
       const imageData = Buffer.from('fake-image').toString('base64');
@@ -189,13 +217,12 @@ describe('handler', () => {
     it('proceeds with upload when no match found', async () => {
       mockComputePHash.mockResolvedValue('abcdef1234567890');
       mockHammingDistance.mockReturnValue(20); // above threshold
-      mockGetPrivateKey.mockResolvedValue('private-key');
       mockGetSignedUrl.mockResolvedValue('https://s3.example.com/presigned');
 
-      const photoRows = [
-        { id: 'photo-1', filename: 'other.jpg', thumbnailKey: 'users/x/thumbnails/other.jpg', s3Key: 'users/x/photos/other.jpg', phash: 'ffffffffffffffff' },
+      const hashRows = [
+        { id: 'photo-1', phash: 'ffffffffffffffff' },
       ];
-      const dbMock = makeQuotaDbMock(null, 0, photoRows);
+      const dbMock = makeSequentialDbMock([[], hashRows]);
       mockCreateDb.mockReturnValue(dbMock as unknown as ReturnType<typeof createDb>);
 
       const imageData = Buffer.from('fake-image').toString('base64');
@@ -204,6 +231,45 @@ describe('handler', () => {
       const body = JSON.parse((result as { body: string }).body);
       expect(body.status).toBe('ok');
       expect(body.url).toBe('https://s3.example.com/presigned');
+    });
+
+    it('uses cursor-based pagination and only fetches detail rows for matches', async () => {
+      mockComputePHash.mockResolvedValue('abcdef1234567890');
+      mockHammingDistance.mockImplementation((_incoming: string, stored: string) =>
+        stored === 'abcdef1234567890' ? 2 : 20,
+      );
+      mockGetPrivateKey.mockResolvedValue('private-key');
+      mockCfSignedUrl.mockResolvedValue('https://cdn.example.com/matched.jpg');
+
+      const firstPage = Array.from({ length: 1000 }, (_, index) => ({
+        id: `photo-${String(index + 1).padStart(4, '0')}`,
+        phash: 'ffffffffffffffff',
+      }));
+      const secondPage = [{ id: 'photo-1001', phash: 'abcdef1234567890' }];
+      const detailRows = [
+        { id: 'photo-1001', filename: 'matched.jpg', thumbnailKey: 'users/x/thumbnails/matched.jpg', s3Key: 'users/x/photos/matched.jpg' },
+      ];
+
+      // Responses: quota user row, first hash page, second hash page, empty page (end), detail rows
+      const dbMock = makeSequentialDbMock([[], firstPage, secondPage, detailRows]);
+      mockCreateDb.mockReturnValue(dbMock as unknown as ReturnType<typeof createDb>);
+
+      const imageData = Buffer.from('fake-image').toString('base64');
+      const result = await handler(makeEvent({ filename: 'new.jpg', contentType: 'image/jpeg', imageData }));
+
+      const body = JSON.parse((result as { body: string }).body);
+      expect(body.status).toBe('duplicate');
+      expect(body.duplicates).toEqual([
+        {
+          id: 'photo-1001',
+          filename: 'matched.jpg',
+          thumbnailUrl: 'https://cdn.example.com/matched.jpg',
+          s3Key: 'users/x/photos/matched.jpg',
+          distance: 2,
+        },
+      ]);
+      expect(dbMock.orderBy).toHaveBeenCalled();
+      expect(dbMock.limit).toHaveBeenCalled();
     });
 
     it('falls through to normal upload when pHash computation fails', async () => {
@@ -228,6 +294,133 @@ describe('handler', () => {
       expect(mockComputePHash).not.toHaveBeenCalled();
       const body = JSON.parse((result as { body: string }).body);
       expect(body.status).toBe('ok');
+    });
+
+    it('returns duplicate for takeout re-imports by normalized relative path', async () => {
+      mockGetPrivateKey.mockResolvedValue('private-key');
+      mockCfSignedUrl.mockResolvedValue('https://cdn.example.com/existing.jpg');
+      mockCreateDb.mockReturnValue(
+        makeSequentialDbMock([
+          [],
+          [
+            {
+              id: 'photo-1',
+              filename: 'existing.jpg',
+              thumbnailKey: 'users/x/thumbnails/google-takeout/11111111-1111-1111-1111-111111111111/Photos from 2021/existing.jpg',
+              s3Key: 'users/x/photos/google-takeout/11111111-1111-1111-1111-111111111111/Photos from 2021/existing.jpg',
+            },
+          ],
+        ]) as unknown as ReturnType<typeof createDb>,
+      );
+
+      const result = await handler(
+        makeEvent({
+          filename: 'existing.jpg',
+          contentType: 'image/jpeg',
+          relativePath: 'google-takeout/22222222-2222-2222-2222-222222222222/Photos from 2021/existing.jpg',
+        }),
+      );
+
+      const body = JSON.parse((result as { body: string }).body);
+      expect(body.status).toBe('duplicate');
+      expect(body.duplicates).toHaveLength(1);
+      expect(mockComputePHash).not.toHaveBeenCalled();
+    });
+
+    it('returns duplicate for takeout video re-imports by normalized relative path', async () => {
+      mockGetPrivateKey.mockResolvedValue('private-key');
+      mockCfSignedUrl.mockResolvedValue(null as never);
+      mockCreateDb.mockReturnValue(
+        makeSequentialDbMock([
+          [],
+          [
+            {
+              id: 'video-1',
+              filename: 'clip.mp4',
+              thumbnailKey: null,
+              s3Key: 'users/x/videos/google-takeout/11111111-1111-1111-1111-111111111111/Photos from 2021/clip.mp4',
+            },
+          ],
+        ]) as unknown as ReturnType<typeof createDb>,
+      );
+
+      const result = await handler(
+        makeEvent({
+          filename: 'clip.mp4',
+          contentType: 'video/mp4',
+          relativePath: 'google-takeout/22222222-2222-2222-2222-222222222222/Photos from 2021/clip.mp4',
+          storageSubFolder: 'videos',
+        }),
+      );
+
+      const body = JSON.parse((result as { body: string }).body);
+      expect(body.status).toBe('duplicate');
+      expect(body.duplicates).toHaveLength(1);
+      expect(mockComputePHash).not.toHaveBeenCalled();
+    });
+
+    it('supports batch preflight with normalized relative-path duplicates only', async () => {
+      mockGetPrivateKey.mockResolvedValue('private-key');
+      mockCfSignedUrl.mockResolvedValue('https://cdn.example.com/existing.jpg');
+
+      const dbMock = makeSequentialDbMock([
+        [{ plan: 'free', storageLimitBytes: 1_000_000_000 }],
+        [{ totalBytes: 100 }],
+        [
+          {
+            id: 'photo-1',
+            filename: 'new.jpg',
+            thumbnailKey: 'users/x/thumbnails/existing.jpg',
+            s3Key: 'users/x/photos/google-takeout/11111111-1111-1111-1111-111111111111/Photos from 2024/new.jpg',
+          },
+        ],
+      ]);
+      mockCreateDb.mockReturnValue(dbMock as unknown as ReturnType<typeof createDb>);
+
+      const result = await handler(
+        makeEvent(
+          {
+            items: [
+              {
+                clientId: 'video-1',
+                filename: 'clip.mp4',
+                contentType: 'video/mp4',
+                contentLength: 100,
+              },
+              {
+                clientId: 'image-1',
+                filename: 'new.jpg',
+                contentType: 'image/jpeg',
+                contentLength: 100,
+                perceptualHash: 'incoming-hash',
+                relativePath: 'google-takeout/22222222-2222-2222-2222-222222222222/Photos from 2024/new.jpg',
+              },
+            ],
+          },
+          'user-123',
+          '/files/preflight',
+        ),
+      );
+
+      const body = JSON.parse((result as { body: string }).body);
+      expect(body.results).toEqual([
+        { clientId: 'video-1', status: 'new' },
+        {
+          clientId: 'image-1',
+          status: 'duplicate',
+          duplicates: [
+            {
+              id: 'photo-1',
+              filename: 'new.jpg',
+              thumbnailUrl: 'https://cdn.example.com/existing.jpg',
+              s3Key: 'users/x/photos/google-takeout/11111111-1111-1111-1111-111111111111/Photos from 2024/new.jpg',
+              distance: 0,
+            },
+          ],
+        },
+      ]);
+      expect(mockComputePHash).not.toHaveBeenCalled();
+      expect(mockHammingDistance).not.toHaveBeenCalled();
     });
   });
 

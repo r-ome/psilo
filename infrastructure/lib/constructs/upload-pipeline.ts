@@ -20,6 +20,8 @@ interface UploadPipelineProps {
 }
 
 export class UploadPipelineConstruct extends Construct {
+  readonly uploadQueue: sqs.Queue;
+
   constructor(scope: Construct, id: string, props: UploadPipelineProps) {
     super(scope, id);
 
@@ -33,6 +35,7 @@ export class UploadPipelineConstruct extends Construct {
       visibilityTimeout: cdk.Duration.seconds(310),
       deadLetterQueue: { queue: uploadDlq, maxReceiveCount: 3 },
     });
+    this.uploadQueue = uploadQueue;
 
     // S3 → SQS notification
     bucket.addEventNotification(

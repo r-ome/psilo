@@ -120,6 +120,9 @@ export default function ImageViewer({
   };
 
   const renderPhoto = (photo: Photo) => {
+    const isHeicImage =
+      photo.contentType === "image/heic" || photo.contentType === "image/heif";
+
     if (photo.contentType?.startsWith("video/")) {
       const playbackSource = getPreferredVideoPlaybackSource(photo);
 
@@ -148,6 +151,32 @@ export default function ImageViewer({
             type={playbackSource.type}
           />
         </video>
+      );
+    }
+
+    if (isHeicImage && photo.previewUrl) {
+      return (
+        <Image
+          src={photo.previewUrl}
+          alt={photo.filename}
+          width={photo.width ?? 1200}
+          height={photo.height ?? 800}
+          className={mediaClass}
+          unoptimized
+        />
+      );
+    }
+
+    if (isHeicImage && photo.thumbnailUrl) {
+      return (
+        <Image
+          src={photo.thumbnailUrl}
+          alt={photo.filename}
+          width={photo.width ?? 1200}
+          height={photo.height ?? 800}
+          className={mediaClass}
+          unoptimized
+        />
       );
     }
 

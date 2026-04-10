@@ -213,13 +213,20 @@ describe('process-photo-metadata handler', () => {
       expect.objectContaining({
         userId: 'u1',
         s3Key: 'users/u1/photos/photo.jpg',
+        normalizedImportPath: null,
         filename: 'photo.jpg',
         size: 12345,
         status: 'processing',
       }),
     );
     expect(mockOnConflictDoUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ set: { status: 'processing', deletedAt: null } }),
+      expect.objectContaining({
+        set: expect.objectContaining({
+          status: 'processing',
+          deletedAt: null,
+          normalizedImportPath: null,
+        }),
+      }),
     );
 
     // Phase 3: update to completed with thumbnail (includes takenAt and thumbnailKey)
@@ -249,6 +256,33 @@ describe('process-photo-metadata handler', () => {
     const result = await handler(makeSqsEvent('users/u1/photos/photo.jpg')) as SQSBatchResponse;
 
     expect(result.batchItemFailures).toEqual([{ itemIdentifier: 'msg-1' }]);
+  });
+
+  it('falls back to completed without previews when HEIC decoding fails', async () => {
+    mockSharpMetadata.mockRejectedValueOnce(new Error('heif decode error'));
+    s3Mock.on(HeadObjectCommand).resolves({
+      ContentType: 'image/heic',
+      LastModified: defaultLastModified,
+    });
+    s3Mock.on(GetObjectCommand).resolves({
+      Body: makeS3Body() as never,
+    });
+
+    const { handler } = await import('../src/handler');
+    const result = await handler(makeSqsEvent('users/u1/photos/photo.HEIC')) as SQSBatchResponse;
+
+    expect(result.batchItemFailures).toHaveLength(0);
+    expect(mockSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'completed',
+        contentType: 'image/heic',
+        takenAt: defaultLastModified,
+        thumbnailKey: null,
+        previewKey: null,
+      }),
+    );
+    expect(s3Mock.commandCalls(PutObjectCommand)).toHaveLength(0);
+    expect(s3Mock.commandCalls(PutObjectTaggingCommand)).toHaveLength(1);
   });
 
   it('extracts takenAt from EXIF DateTimeOriginal', async () => {
@@ -315,6 +349,48 @@ describe('process-photo-metadata handler', () => {
         Body: makeS3Body() as never,
         ContentType: 'image/jpeg',
       });
+
+    const { handler } = await import('../src/handler');
+    await handler(makeSqsEvent(takeoutKey));
+
+    expect(mockSet).toHaveBeenCalledWith(
+      expect.objectContaining({ takenAt: takeoutDate }),
+    );
+  });
+
+  it('falls back to Google Takeout creationTime when photoTakenTime is missing', async () => {
+    const takeoutDate = new Date('2025-09-01T22:34:28.000Z');
+    const takeoutKey = 'users/u1/photos/google-takeout/import-123/video.mp4';
+
+    s3Mock
+      .on(GetObjectCommand, {
+        Bucket: 'test-bucket',
+        Key: `${takeoutKey}.json`,
+      })
+      .resolves({
+        Body: makeJsonBody({
+          creationTime: {
+            timestamp: `${Math.floor(takeoutDate.getTime() / 1000)}`,
+          },
+          modificationTime: {
+            timestamp: `${Math.floor(new Date('2026-01-01T00:00:00.000Z').getTime() / 1000)}`,
+          },
+        }) as never,
+      });
+
+    s3Mock
+      .on(GetObjectCommand, {
+        Bucket: 'test-bucket',
+        Key: takeoutKey,
+      })
+      .resolves({
+        Body: makeS3Body() as never,
+      });
+
+    s3Mock.on(HeadObjectCommand).resolves({
+      ContentType: 'video/mp4',
+      LastModified: defaultLastModified,
+    });
 
     const { handler } = await import('../src/handler');
     await handler(makeSqsEvent(takeoutKey));
