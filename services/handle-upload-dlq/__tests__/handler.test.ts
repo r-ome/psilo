@@ -80,4 +80,31 @@ describe('handle-upload-dlq handler', () => {
 
     expect(result.batchItemFailures).toEqual([{ itemIdentifier: 'msg-3' }]);
   });
+
+  it('drops unparsable DLQ payloads without retrying them', async () => {
+    const { handler } = await import('../src/handler');
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const event: SQSEvent = {
+      Records: [
+        {
+          messageId: 'msg-4',
+          body: '{"Records":[{"s3":{"object":{"key":"bad\nkey.jpg"}}}]}',
+        } as SQSEvent['Records'][0],
+      ],
+    };
+
+    const result = await handler(event) as SQSBatchResponse;
+
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(result.batchItemFailures).toHaveLength(0);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      'Dropping unparsable DLQ message',
+      expect.objectContaining({
+        messageId: 'msg-4',
+        bodyPreview: expect.stringContaining('bad'),
+        err: expect.any(SyntaxError),
+      }),
+    );
+    consoleSpy.mockRestore();
+  });
 });
