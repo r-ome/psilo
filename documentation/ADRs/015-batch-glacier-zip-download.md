@@ -24,11 +24,11 @@ The existing `retrieval_batches` / `retrieval_requests` tracking tables (ADR not
 
 ## Decision
 
-Add a **zip pipeline** triggered after all files in an album-level (`batchType=ALBUM`) Glacier batch are fully restored:
+Add a **zip pipeline** triggered after all files in a zip-flow Glacier batch are fully restored. In the current implementation, zip flow covers non-`SINGLE` batches (`ALBUM` and `MANUAL`):
 
 ### SNS + `handle-glacier-job-complete` Lambda
 
-When S3 completes a Glacier restore, it emits an "Object Restore Completed" event. For **zip-flow batches** (ALBUM type), this event is routed via SNS to a new `handle-glacier-job-complete` Lambda instead of directly triggering `handle-restore-completed`.
+When S3 completes a Glacier restore, it emits an "Object Restore Completed" event. For **zip-flow batches** (non-`SINGLE` types), this event is routed via SNS to a new `handle-glacier-job-complete` Lambda instead of being handled by the single-file email flow.
 
 The Lambda (scoped to non-SINGLE batches — SINGLE batches are owned by the email flow):
 1. Finds ALL `IN_PROGRESS` requests for the restored key across non-SINGLE batches
@@ -40,11 +40,11 @@ The atomic "check count + flip status" step prevents two concurrent SNS deliveri
 
 ### `zip-processor` Fargate Container
 
-ECS Fargate Spot task in the `ZipPipelineConstruct`. `node:22-slim` image with `archiver` for streaming zip creation.
+ECS Fargate task in the `ZipPipelineConstruct`, backed by the `zip-processor` ECR image and `archiver` for streaming zip creation.
 
 Steps:
 1. Reads `BATCH_ID` from the environment
-2. Queries `retrieval_requests WHERE batchId = BATCH_ID AND status = READY`
+2. Queries `retrieval_requests` for the batch and attempts to stream every file into the archive
 3. For each file, streams `GetObjectCommand` output through the `archiver` zip stream (no full file in memory — pipe directly)
 4. Uploads the completed zip to a dedicated `zip-bucket` (separate from the main photo bucket for simpler lifecycle management)
 5. Generates a 7-day presigned GET URL for the zip
@@ -99,18 +99,18 @@ Rejected because S3 Batch Operations does not produce a zip — it copies indivi
 
 ## Reasons
 
-- Fargate Spot removes the Lambda timeout and memory constraints. The container can run for hours if needed.
+- ECS Fargate removes the Lambda timeout and memory constraints. The container can run for hours if needed.
 - Streaming via `archiver` means memory usage is constant regardless of album size (each file is piped, not buffered).
 - The single "Download Zip" link is a substantially better UX than 200 individual emails for album downloads.
 - The `ZipPipelineConstruct` encapsulates ECS cluster, task definition, IAM roles, and the zip S3 bucket — no impact on other constructs.
-- Fargate Spot costs ~70% less than on-demand. A 2-hour zip job at 0.5 vCPU / 1 GB memory costs roughly $0.01–0.02 on Spot.
+- The zip step is isolated from the request/response path, so longer-running archive work does not affect API latency.
 
 ## Consequences
 
-- `ZipPipelineConstruct` added in `infrastructure/lib/constructs/zip-pipeline.ts`. Provisions: ECS cluster, Fargate task definition, ECR repo (`zip-processor`), zip S3 bucket.
+- `ZipPipelineConstruct` added in `infrastructure/lib/constructs/zip-pipeline.ts`. Provisions: ECS cluster, Fargate task definition, VPC, security group, and zip S3 bucket. The `zip-processor` ECR repository is imported by name rather than created in the construct.
 - `handle-glacier-job-complete` Lambda added: SNS trigger, DB transaction for atomic count + RunTask.
 - Migration 0017 adds CHECK constraints for new status values on `retrieval_batches` (`IN_PROGRESS`, `ZIPPING`, `COMPLETED`, `PARTIAL_FAILURE`) and `retrieval_requests` (`IN_PROGRESS`, `READY`, `FAILED`, `EXPIRED`).
 - The two restore-completion Lambdas are separated by `batchType` (SINGLE vs non-SINGLE) rather than batch status, cleanly partitioning ownership of the shared DB tables.
 - The zip bucket has a 7-day lifecycle rule (matching Glacier restore retention) to automatically expire zip archives.
-- If the Fargate task fails (e.g., Spot interruption mid-zip), the batch stays in `ZIPPING` state indefinitely — there is currently no retry mechanism for the zip step. The user would need to initiate a new restore batch.
+- If the Fargate task fails (for example container startup failure or streaming error), the batch stays in `ZIPPING` or is marked `FAILED` by the task logic, and there is currently no retry mechanism for the zip step. The user would need to initiate a new restore batch.
 - The `request-restore` Lambda now checks for existing active batches before issuing new `RestoreObjectCommand` calls, preventing duplicate restore charges when a user accidentally re-requests a batch that is already in progress.

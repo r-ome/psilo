@@ -5,8 +5,11 @@
 - [Project Structure](#project-structure)
 - [Tech Stack](#tech-stack)
 - [AWS Architecture](#aws-architecture)
-- [Key Decisions](#key-decisions)
 - [Status](#status)
+- [Roadmap](#roadmap)
+- [Problems Encountered](#problems-encountered)
+- [Google Takeout Strategy](#google-takeout-strategy)
+- [Key Decisions](#key-decisions)
 
 # Summary
 
@@ -36,7 +39,7 @@ and full-stack TypeScript. Integrated with Claude Code for AI-assisted developme
     - EventBridge - listens for S3 storage class transitions and Glacier restore completions
     - Aurora Serverless v2 - stores users, photo metadata, storage class state, retrieval batches
     - AWS Batch (Fargate Spot) + ECR - video thumbnail and preview generation via FFmpeg
-    - ECS Fargate (Spot) + ECR - batch Glacier zip download pipeline
+    - ECS Fargate + ECR - batch Glacier zip download pipeline
     - SES - email notifications when Glacier restores complete (single-file flow)
 
 # Project Structure
@@ -48,14 +51,14 @@ and full-stack TypeScript. Integrated with Claude Code for AI-assisted developme
 │                                    #   video-pipeline, cdn, zip-pipeline, api)
 └── services/                        # Lambda functions + shared code
       ├── generate-presigned-url/    # pHash duplicate check + presigned PUT URL
-      ├── manage-photos/             # List, delete, storage stats, trash (CloudFront signed URLs)
+      ├── manage-photos/             # List, delete, trash, profile/plan endpoints (CloudFront signed URLs)
       ├── manage-albums/             # CRUD albums + album-photo associations (CloudFront signed URLs)
       ├── manage-retrieval/          # List retrieval batches and per-file restore status
       ├── request-restore/           # POST /files/restore — presigned URL or Glacier restore
       ├── handle-restore-completed/  # EventBridge — SES email when Glacier restore finishes (email flow)
       ├── handle-glacier-job-complete/ # SNS — coordinates zip pipeline when all files are restored
       ├── user-provisioning/         # Post-Cognito confirmation setup
-      ├── process-photo-metadata/    # EXIF + thumbnail (images) + pHash; submits Batch jobs (videos)
+      ├── process-photo-metadata/    # EXIF + thumbnail + preview + pHash; submits Batch jobs (videos)
       ├── lifecycle-transition/      # Tracks S3 Glacier transitions (EventBridge)
       ├── handle-upload-dlq/         # Dead-letter queue handler
       ├── purge-deleted-photos/      # Daily cron — hard-deletes soft-deleted photos past retention
@@ -63,7 +66,7 @@ and full-stack TypeScript. Integrated with Claude Code for AI-assisted developme
       │     ├── video-thumbnail-processor/  # Fargate job: FFmpeg thumbnail + 5s preview generation
       │     └── zip-processor/             # Fargate job: stream restored files → zip → S3
       ├── shared/                    # Schema + DB client + CloudFront signer + pHash (bundled by esbuild)
-      └── migrations/                # Drizzle SQL migrations (0000–0017)
+      └── migrations/                # Drizzle SQL migrations (0000–0019)
 ```
 
 ### Frontend
@@ -91,7 +94,7 @@ Lambda functions written in TypeScript, each handling a specific domain. Deploye
 | Auth           | Cognito                               |
 | Queue          | SQS + DLQ                             |
 | Video          | AWS Batch (Fargate Spot) + FFmpeg     |
-| Zip Download   | ECS Fargate Spot + archiver           |
+| Zip Download   | ECS Fargate + archiver                |
 | Email          | SES                                   |
 | Registry       | ECR                                   |
 
@@ -181,16 +184,39 @@ Currently in active development
 - [x] Bulk photo delete
 - [x] Trash bin + photo restore
 - [x] Video support (upload + thumbnail cover + hover preview via AWS Batch + FFmpeg)
-- [x] Full-resolution photo viewer (STANDARD: full-res; GLACIER: thumbnail fallback)
+- [x] Full-resolution photo viewer (STANDARD: full-res; GLACIER: preview or thumbnail fallback)
 - [x] Full-resolution photo download (Standard: immediate presigned URL; Glacier: restore + SES email)
-- [x] Batch Glacier album download (zip pipeline via ECS Fargate Spot)
+- [x] Batch Glacier album download (zip pipeline via ECS Fargate)
 - [x] Glacier restore tier selection (Expedited / Standard / Bulk)
 - [x] Retrieval batch tracking + restore requests page with Download Zip button
 - [x] CloudFront CDN for thumbnail/preview delivery (24h edge caching)
 - [x] pHash perceptual duplicate detection at upload time
+- [x] Tier-aware storage limits, nudges, and settings page
 - [x] CDK stack refactored into per-domain constructs
-- [ ] Photo sorting and filtering
-- [ ] Settings page
+
+# Roadmap
+
+- [ ] Add Redis or another caching layer for hot reads and duplicate-check-adjacent lookups
+- [ ] Add a notifications feature for upload completion / processing completion
+- [ ] Simplify restore requests to an Expedited-only path for now and remove Standard/Bulk from the user flow
+- [ ] Audit storage and billing calculations against actual write paths, transitions, and retrieval flows
+- [ ] Add photo sorting and filtering
+- [ ] Document operational edge cases and recovery steps as they are discovered
+
+# Problems Encountered
+
+- Google Photos / Google Takeout exports are often split across multiple zip files, and albums or years can be mixed between archives. Treating the whole export as one giant import is error-prone.
+- Aurora Data API payload limits make large DB-backed hash scans fragile. For duplicate checking, broad result sets are unsafe; treat roughly `1 MB` responses as a practical ceiling and keep queries narrow.
+- Metadata processing can fail on individual files, so the retry path matters. The app already exposes `POST /api/photos/retry-failed` for re-queueing failed items.
+- Batch duplicate handling is intentionally narrower than single-file upload checks. Batch preflight is currently for path-based existing duplicates plus same-batch local duplicate heuristics, not a full DB-wide pHash pass for every file in the batch.
+
+# Google Takeout Strategy
+
+- Import Google Takeout in smaller slices, ideally per year or per explicit request, not as one full-account migration.
+- Always import from an extracted folder so media files and JSON sidecars stay together.
+- Keep each import bounded enough that duplicate review, retry handling, and sidecar matching remain manageable.
+- Use the existing `google-takeout/{importId}/...` pathing so each import run is isolated, while `normalized_import_path` still lets the backend detect re-imports across different export runs.
+- Expect some media files to arrive without matching sidecars and some JSON files to remain unmatched; review those counts after every import batch before continuing to the next year/request.
 
 # Key Decisions
 

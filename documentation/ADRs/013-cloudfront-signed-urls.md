@@ -33,7 +33,7 @@ Key implementation details:
 - **Signed URL generation** uses `@aws-sdk/cloudfront-signer`. Path segments are `encodeURIComponent`-encoded before constructing the URL to handle filenames with spaces or special characters.
 - **Cache behaviors** (shortest-TTL wins per path):
   - `users/*/thumbnails/*`: 24h default TTL, 7d max TTL
-  - `users/*/previews/*`: 1h default TTL, 24h max TTL
+  - `users/*/previews/*`: 24h default TTL, 7d max TTL
   - Default (`users/*/photos/*`, `users/*/videos/*`): 1h default TTL, 24h max TTL
 - **`USE_CLOUDFRONT` env var** (Lambda): feature flag for instant rollback to S3 presigned URLs via the AWS console, without redeploying. When `false` or absent, the Lambda falls back to the previous S3 presigned URL path.
 - CDK construct: `CdnConstruct` in `infrastructure/lib/constructs/cdn.ts`.
@@ -80,7 +80,7 @@ Rejected because it introduces a third-party dependency, adds cost, and does not
 
 ## Consequences
 
-- `CdnConstruct` provisions the CloudFront distribution, OAC, and KeyGroup. The public key must be manually uploaded to CloudFront and its ID stored in CDK config / `.env.local` before deploy.
+- `CdnConstruct` provisions the CloudFront distribution, OAC, CloudFront `PublicKey`, and `KeyGroup`. Deployments require `CLOUDFRONT_PUBLIC_KEY_PEM` and `CLOUDFRONT_PRIVATE_KEY_SECRET_ARN` in the infrastructure environment.
 - Three new Lambda env vars: `CLOUDFRONT_DOMAIN`, `CLOUDFRONT_KEY_PAIR_ID`, `CLOUDFRONT_PRIVATE_KEY_SECRET_ARN`.
 - The private key is fetched from Secrets Manager on cold start and cached in Lambda memory. Rotation requires a Lambda restart (or a `USE_CLOUDFRONT=false` toggle) to pick up the new key.
 - CloudFront distribution domain must be added to `next.config.ts` `remotePatterns` for Next.js `<Image>` to accept it.
